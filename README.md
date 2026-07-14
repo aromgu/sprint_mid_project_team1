@@ -8,7 +8,6 @@ rag-project/
 ├─ README.md
 ├─ .gitignore
 ├─ .env.example
-├─ requirements.txt
 ├─ src/
 │  ├─ loader/
 │  │  └─ load_documents.py
