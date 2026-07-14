@@ -1,6 +1,9 @@
 # sprint_mid_project_team1
 mid project with RAG
 
+## Project Structure
+
+```text
 rag-project/
 ├─ README.md
 ├─ .gitignore
@@ -36,3 +39,4 @@ rag-project/
 └─ .github/
    ├─ ISSUE_TEMPLATE/
    └─ pull_request_template.md
+```
