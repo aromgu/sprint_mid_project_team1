@@ -3,7 +3,7 @@ mid project with RAG
 
 
 ## Settings
-해당 repo를 clone 한 후에, repo directory에서 uvx prek install 를 터미널에서 실행.
+해당 repo를 clone 한 후에, repo directory에서 '''uvx prek install''' 터미널에 실행.
 
 
 
