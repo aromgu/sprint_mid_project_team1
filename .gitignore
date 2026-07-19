@@ -1,2 +1,6 @@
 .venv/
+*.pyc
+.env
+*.faiss
 __pycache__
+*/*/__init__.py
