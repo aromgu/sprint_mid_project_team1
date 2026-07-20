@@ -1,6 +1,16 @@
+.gitignore
 .venv/
 *.pyc
 .env
 *.faiss
 __pycache__
 */*/__init__.py
+ExeGuide.md
+README.md.back
+git_log.txt
+log_07192034.md
+requirements_ubuntu.txt
+run_init.sh
+src/TMP/
+src/agentic/
+trees.md
