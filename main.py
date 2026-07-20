@@ -1,5 +1,9 @@
-# 소스 파일에서 BidMateRAGSession 클래스를 import
-from rag_session import BidMateRAGSession
+import logging
+
+from logging_config import setup_logging
+from src.generation.generate_answer import BidMateRAGSession
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -16,13 +20,15 @@ def main():
     같은 코드가 들어간다.
     """
 
+    logger.info("프로그램 시작")
+
     # 세션 객체 생성
     # 실제 환경에서는 "YOUR_API_KEY" 대신 환경변수 사용 권장
     session = BidMateRAGSession(api_key="YOUR_API_KEY")
 
     # retriever가 top-k로 뽑아줬다고 가정한 문서 조각 예시
     # 실제 프로젝트에서는 이 부분이 FAISS/Chroma/BM25 등의 검색 결과로 대체됨
-    # 지연님 이곳으로 retrive결과 넣어주세요!
+    # 지연님 retrieved_docs로 retrive결과 반환해주세요!
     retrieved_docs = [
         {
             "text": (
@@ -50,9 +56,12 @@ def main():
 
     # 사용자 질문 정의
     query = "이 사업의 예산, 수행기간, 제출기한을 알려줘"
+    logger.info("사용자 질문: %s", query)
 
     # 세션 객체를 사용해 질문 수행
     result = session.ask(query, retrieved_docs)
+    logger.info("session.ask 완료")
+    logger.info("신뢰도: %s", result.get("confidence"))
 
     # 결과 출력
     print("===== 직접 답변 =====")
@@ -93,4 +102,5 @@ def main():
 
 
 if __name__ == "__main__":
+    setup_logging()
     main()
