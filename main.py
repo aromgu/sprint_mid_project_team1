@@ -34,7 +34,7 @@ def main():
             "source": "rfp_001.pdf",
             "page": 2,
             "score": 0.93,
-            "metadata": {"doc_id": "rfp_001"}
+            "metadata": {"doc_id": "rfp_001"},
         },
         {
             "text": (
@@ -44,8 +44,8 @@ def main():
             "source": "rfp_001.pdf",
             "page": 5,
             "score": 0.90,
-            "metadata": {"doc_id": "rfp_001"}
-        }
+            "metadata": {"doc_id": "rfp_001"},
+        },
     ]
 
     # 사용자 질문 정의

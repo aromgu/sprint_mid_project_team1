@@ -17,13 +17,13 @@ NAIVE RAG generate code
 """
 
 # OpenAI API를 사용하기 위한 클라이언트 클래스 import
-from openai import OpenAI
-
-# 타입 힌트를 위한 typing 모듈 import
-from typing import List, Dict, Optional, Any
-
 # 모델이 반환한 JSON 문자열을 파이썬 dict로 바꾸기 위해 import
 import json
+
+# 타입 힌트를 위한 typing 모듈 import
+from typing import Any, Dict, List, Optional
+
+from openai import OpenAI
 
 
 class BidMateRAGSession:
@@ -73,9 +73,7 @@ class BidMateRAGSession:
         self.previous_response_id = None
 
     def build_context(
-        self,
-        retrieved_docs: List[Dict[str, Any]],
-        max_chars: int = 7000
+        self, retrieved_docs: List[Dict[str, Any]], max_chars: int = 7000
     ) -> str:
         """
         retriever가 반환한 문서 조각들을 하나의 context 문자열로 합친다.
@@ -237,7 +235,7 @@ class BidMateRAGSession:
                             "eligibility": {"type": ["string", "null"]},
                             "evaluation_criteria": {"type": ["string", "null"]},
                             "required_documents": {"type": ["string", "null"]},
-                            "notes": {"type": ["string", "null"]}
+                            "notes": {"type": ["string", "null"]},
                         },
                         "required": [
                             "project_name",
@@ -250,13 +248,10 @@ class BidMateRAGSession:
                             "eligibility",
                             "evaluation_criteria",
                             "required_documents",
-                            "notes"
-                        ]
+                            "notes",
+                        ],
                     },
-                    "citations": {
-                        "type": "array",
-                        "items": {"type": "string"}
-                    },
+                    "citations": {"type": "array", "items": {"type": "string"}},
                     "evidence_quotes": {
                         "type": "array",
                         "items": {
@@ -264,25 +259,15 @@ class BidMateRAGSession:
                             "additionalProperties": False,
                             "properties": {
                                 "document": {"type": "string"},
-                                "quote": {"type": "string"}
+                                "quote": {"type": "string"},
                             },
-                            "required": ["document", "quote"]
-                        }
+                            "required": ["document", "quote"],
+                        },
                     },
-                    "confidence": {
-                        "type": "string",
-                        "enum": ["high", "medium", "low"]
-                    },
-                    "needs_clarification": {
-                        "type": "boolean"
-                    },
-                    "clarification_question": {
-                        "type": ["string", "null"]
-                    },
-                    "conflicts": {
-                        "type": "array",
-                        "items": {"type": "string"}
-                    }
+                    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                    "needs_clarification": {"type": "boolean"},
+                    "clarification_question": {"type": ["string", "null"]},
+                    "conflicts": {"type": "array", "items": {"type": "string"}},
                 },
                 "required": [
                     "answer",
@@ -293,18 +278,18 @@ class BidMateRAGSession:
                     "confidence",
                     "needs_clarification",
                     "clarification_question",
-                    "conflicts"
-                ]
-            }
+                    "conflicts",
+                ],
+            },
         }
 
         # OpenAI Responses API 요청 파라미터 구성
         req = {
-            "model": self.model,                 # 사용할 모델
-            "instructions": instructions,        # 시스템 지침
-            "input": user_input,                 # 사용자 입력
-            "text": {"format": schema},          # 구조화 출력 스키마
-            "store": True                        # 멀티턴 상태 저장용
+            "model": self.model,  # 사용할 모델
+            "instructions": instructions,  # 시스템 지침
+            "input": user_input,  # 사용자 입력
+            "text": {"format": schema},  # 구조화 출력 스키마
+            "store": True,  # 멀티턴 상태 저장용
         }
 
         # 이전 턴이 있다면 previous_response_id를 함께 넣어서 멀티턴 연결
