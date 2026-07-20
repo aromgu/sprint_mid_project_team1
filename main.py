@@ -3,7 +3,7 @@ import logging
 from logging_config import setup_logging
 from src.generation.generate_answer import BidMateRAGSession
 
-from retriever import search_documents 
+from src.retrieval.retriever import search_documents
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def main():
     logger.info("사용자 질문: %s", query)
     
     # retriever를 통해 top-k 문서 검색
-    retrieved_docs = get_retrieved_docs_for_session(query, k=5)
+    retrieved_docs = search_documents(query, k=5)
     logger.info("검색된 문서 수: %d", len(retrieved_docs))
 
     # 세션 객체를 사용해 질문 수행
