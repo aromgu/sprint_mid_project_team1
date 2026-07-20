@@ -1,8 +1,6 @@
 
-from langchain_core.documents import Document
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings         
-from langchain_huggingface import HuggingFaceEmbeddings 
 
 # ─────────────────────────────────────────────
 # 1) 임베딩 모델 준비
