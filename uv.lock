@@ -3566,7 +3566,7 @@ requires-dist = [
     { name = "rank-bm25", specifier = ">=0.2.2" },
     { name = "rhwp-python", specifier = "==0.8.1" },
     { name = "sentence-transformers", specifier = ">=5.6.0" },
-    { name = "tiktoken", specifier = ">=0.13.0" },
+    { name = "tiktoken", specifier = "==0.13.0" },
 ]
 
 [[package]]
