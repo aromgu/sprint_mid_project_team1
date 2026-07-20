@@ -4,6 +4,7 @@ mid project with RAG
 
 ## Settings
 작업할 환경에서 ```pip install uv```
+
 해당 repo를 clone 한 후에, repo directory에서  ```uv sync``` 와 ```uvx prek install```  터미널에 실행.
 
 
