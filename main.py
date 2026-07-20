@@ -31,11 +31,10 @@ def main():
     # retriever가 top-k로 뽑아줬다고 가정한 문서 조각 예시
     # 실제 프로젝트에서는 이 부분이 FAISS/Chroma/BM25 등의 검색 결과로 대체됨
 
-
     # 사용자 질문 정의
     query = "이 사업의 예산, 수행기간, 제출기한을 알려줘"
     logger.info("사용자 질문: %s", query)
-    
+
     # retriever를 통해 top-k 문서 검색
     retrieved_docs = search_documents(query, k=5)
     logger.info("검색된 문서 수: %d", len(retrieved_docs))
