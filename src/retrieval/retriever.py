@@ -1,20 +1,19 @@
-
 from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings         
+from langchain_openai import OpenAIEmbeddings
 
 # ─────────────────────────────────────────────
 # 1) 임베딩 모델 준비
 # ─────────────────────────────────────────────
 embeddings = OpenAIEmbeddings(
-    model="text-embedding-3-small", 
+    model="text-embedding-3-small",
 )
 
 # ─────────────────────────────────────────────
 # 2) 기존에 저장된 Chroma DB 불러오기 (읽기 전용으로 사용)
 # ─────────────────────────────────────────────
 vectorstore = Chroma(
-    collection_name="rfp_docs",       # 저장할 때 썼던 컬렉션 이름과 동일해야 함
-    embedding_function=embeddings,    # 쿼리를 벡터로 바꿔줄 임베딩 모델
+    collection_name="rfp_docs",  # 저장할 때 썼던 컬렉션 이름과 동일해야 함
+    embedding_function=embeddings,  # 쿼리를 벡터로 바꿔줄 임베딩 모델
     persist_directory="/home/data/chroma_db",  # 기존 DB가 저장된 폴더 경로
 )
 
@@ -22,8 +21,8 @@ vectorstore = Chroma(
 # 3) 체인(chain)에 연결할 때 쓰는 표준 리트리버
 # ─────────────────────────────────────────────
 retriever = vectorstore.as_retriever(
-    search_type="similarity",   # 단순 유사도 기반 검색
-    search_kwargs={"k": 5},     # 상위 5개 문서 반환
+    search_type="similarity",  # 단순 유사도 기반 검색
+    search_kwargs={"k": 5},  # 상위 5개 문서 반환
 )
 
 
@@ -54,14 +53,16 @@ def search_documents(query: str, k: int = 5) -> list[dict]:
     retrieved_docs = []
 
     for doc, score in results:
-        retrieved_docs.append({
-            "id": doc.metadata.get("id"),       
-            "text": doc.page_content,  
-            "file_nm": doc.metadata.get("file_nm"),
-            "source": float(score),        
-            "metadata": doc.metadata, 
-            # "token_count": doc.metadata.get("token_count"),
-            # "create_date": doc.metadata.get("create_date"),
-        })
+        retrieved_docs.append(
+            {
+                "id": doc.metadata.get("id"),
+                "text": doc.page_content,
+                "file_nm": doc.metadata.get("file_nm"),
+                "source": float(score),
+                "metadata": doc.metadata,
+                # "token_count": doc.metadata.get("token_count"),
+                # "create_date": doc.metadata.get("create_date"),
+            }
+        )
 
     return retrieved_docs
