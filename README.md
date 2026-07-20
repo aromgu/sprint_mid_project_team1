@@ -48,11 +48,29 @@ OPENAI_API_KEY="your-api-key"
 
 `.env`는 Git에서 제외됩니다. API key가 포함된 `.env`를 commit하지 마세요.
 
-선택적으로 pre-commit hook을 설치할 수 있습니다.
+### Pre-commit
+
+저장소를 clone한 후 개발 환경에서 한 번만 pre-commit hook을 설치합니다.
 
 ```bash
 uv run pre-commit install
 ```
+
+설치가 완료되면 `.git/hooks/pre-commit`에 hook이 생성되며, 이후 `git commit`을 실행할 때 다음 검사가 자동으로 수행됩니다.
+
+- 공백 및 파일 끝 개행
+- YAML, JSON, TOML 문법
+- 대용량 파일 추가 여부
+- 해결되지 않은 merge conflict 표시
+- Ruff lint, import 정렬 및 format
+
+전체 파일을 수동으로 검사하려면 다음 명령을 실행합니다.
+
+```bash
+uv run pre-commit run --all-files
+```
+
+검사 과정에서 Ruff가 파일을 수정하거나 검사가 실패하면 변경 내용을 확인하고 필요한 파일을 다시 staging한 뒤 commit합니다.
 
 ## Run
 
