@@ -13,8 +13,8 @@ from __future__ import annotations
 import hashlib
 import unicodedata
 from collections import defaultdict
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 SUPPORTED_EXTENSIONS = frozenset({".hwp", ".hwpx", ".pdf"})
@@ -41,8 +41,13 @@ class SourceDocument:
     duplicate_group_size: int
     is_default_canonical: bool
     default_canonical_filename: str
+    filename_aliases: tuple[str, ...] = ()
+    source_relative_path_aliases: tuple[str, ...] = ()
+    all_source_filenames: tuple[str, ...] = ()
+    canonical_selection_source: str = "not_selected"
+    canonical_selection_reason: str = ""
 
-    def as_metadata(self) -> dict[str, str | int | bool]:
+    def as_metadata(self) -> dict[str, object]:
         """Path 객체를 제외하고 JSON으로 저장 가능한 출처 정보만 반환한다."""
         return {
             "source_id": self.source_id,
@@ -55,6 +60,11 @@ class SourceDocument:
             "duplicate_group_size": self.duplicate_group_size,
             "is_default_canonical": self.is_default_canonical,
             "default_canonical_filename": self.default_canonical_filename,
+            "filename_aliases": list(self.filename_aliases),
+            "source_relative_path_aliases": list(self.source_relative_path_aliases),
+            "all_source_filenames": list(self.all_source_filenames),
+            "canonical_selection_source": self.canonical_selection_source,
+            "canonical_selection_reason": self.canonical_selection_reason,
         }
 
 
@@ -158,14 +168,21 @@ def load_documents(
         canonical_path = ordered_paths[0]
         canonical_filename = unicodedata.normalize("NFC", canonical_path.name)
         source_id = digest[:16]
+        normalized_filenames = tuple(
+            unicodedata.normalize("NFC", path.name) for path in ordered_paths
+        )
+        normalized_relative_paths = tuple(
+            unicodedata.normalize("NFC", str(path.relative_to(root)))
+            for path in ordered_paths
+        )
 
-        for path in ordered_paths:
+        for path_index, path in enumerate(ordered_paths):
             documents.append(
                 SourceDocument(
                     source_id=source_id,
                     document_id=source_id,
                     source_path=path,
-                    source_relative_path=str(path.relative_to(root)),
+                    source_relative_path=normalized_relative_paths[path_index],
                     source_filename=unicodedata.normalize("NFC", path.name),
                     source_sha256=digest,
                     file_type=path.suffix.casefold().lstrip("."),
@@ -173,6 +190,17 @@ def load_documents(
                     duplicate_group_size=len(ordered_paths),
                     is_default_canonical=path == canonical_path,
                     default_canonical_filename=canonical_filename,
+                    filename_aliases=tuple(
+                        filename
+                        for index, filename in enumerate(normalized_filenames)
+                        if index != path_index
+                    ),
+                    source_relative_path_aliases=tuple(
+                        relative_path
+                        for index, relative_path in enumerate(normalized_relative_paths)
+                        if index != path_index
+                    ),
+                    all_source_filenames=normalized_filenames,
                 )
             )
 
@@ -189,9 +217,61 @@ def select_default_canonical_documents(
 ) -> list[SourceDocument]:
     """각 SHA-256 그룹에서 loader가 표시한 기본 대표 파일만 반환한다.
 
-    이 함수의 선택은 자동 기본값이다. 팀에서 정한 대표 파일 정책이 있다면
-    preprocessing에서 그 정책을 우선 적용해야 한다.
+    이 함수의 선택은 자동 기본값이다. 팀에서 대표 파일을 검토했다면
+    :func:`select_canonical_documents`에 상대경로 정책을 전달한다.
     """
-    canonical = [document for document in documents if document.is_default_canonical]
-    canonical.sort(key=lambda document: document.source_filename.casefold())
-    return canonical
+    return select_canonical_documents(documents)
+
+
+def select_canonical_documents(
+    documents: Iterable[SourceDocument],
+    *,
+    preferred_relative_path_by_source_id: Mapping[str, str] | None = None,
+) -> list[SourceDocument]:
+    """SHA 그룹마다 대표 파일 하나를 고르고 선택 근거를 함께 반환한다.
+
+    팀에서 중복 원본의 대표를 검토했다면 ``source_id: 상대경로`` 형태의 정책을
+    전달한다. 정책이 없는 그룹만 loader의 결정적 경로 순서를 기본값으로 쓴다.
+    파일명만 받지 않고 상대경로를 받으므로 서로 다른 폴더의 같은 이름도 구분한다.
+    """
+    preferences = preferred_relative_path_by_source_id or {}
+    groups: dict[str, list[SourceDocument]] = defaultdict(list)
+    for document in documents:
+        groups[document.source_id].append(document)
+
+    unknown_source_ids = set(preferences) - set(groups)
+    if unknown_source_ids:
+        raise ValueError("원본 목록에 없는 source_id의 대표 파일 정책이 있습니다")
+
+    selected: list[SourceDocument] = []
+    for source_id, group in groups.items():
+        preferred_path = preferences.get(source_id)
+        if preferred_path is None:
+            matches = [document for document in group if document.is_default_canonical]
+            selection_source = "loader_default"
+            selection_reason = "normalized_relative_path_order"
+        else:
+            normalized_preference = unicodedata.normalize("NFC", preferred_path)
+            matches = [
+                document
+                for document in group
+                if unicodedata.normalize("NFC", document.source_relative_path)
+                == normalized_preference
+            ]
+            selection_source = "team_policy"
+            selection_reason = "preferred_source_relative_path"
+
+        if len(matches) != 1:
+            raise ValueError(
+                f"source_id {source_id}의 대표 파일을 하나로 결정할 수 없습니다"
+            )
+        selected.append(
+            replace(
+                matches[0],
+                canonical_selection_source=selection_source,
+                canonical_selection_reason=selection_reason,
+            )
+        )
+
+    selected.sort(key=lambda document: document.source_filename.casefold())
+    return selected

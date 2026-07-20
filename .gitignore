@@ -1,2 +1,13 @@
 .venv/
-__pycache__
+__pycache__/
+*.py[cod]
+
+# API 키와 개인별 환경 설정
+.env
+.env.*
+!.env.example
+
+# 원본 RFP와 전처리 산출물은 공개 Git 저장소에 올리지 않는다.
+/data/raw/
+/data/processed/
+/data/private/
