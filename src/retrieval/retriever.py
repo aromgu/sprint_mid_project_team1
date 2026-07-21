@@ -75,4 +75,3 @@ def search_documents(query: str, k: int = 5) -> list[dict]:
         )
 
     return retrieved_docs
-
