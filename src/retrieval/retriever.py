@@ -69,7 +69,7 @@ def search_documents(query: str, k: int = 5) -> list[dict]:
                 "id": doc.metadata.get("chunk_id"),
                 "text": doc.page_content,
                 "file_nm": doc.metadata.get("file_nm"),
-                "source": float(score),
+                "score": float(score),
                 "metadata": doc.metadata,
             }
         )
