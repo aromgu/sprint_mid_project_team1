@@ -142,11 +142,23 @@ def main():
         print()
 
         print("===== 근거 문서 =====")
-        print(result["citations"])
+        for citation in result["citations"]:
+            print(
+                f"- source: {citation['source']} | "
+                f"page: {citation['page']} | "
+                f"doc_id: {citation['doc_id']} | "
+                f"chunk_id: {citation['chunk_id']} | "
+            )
         print()
 
         print("===== 근거 인용 =====")
-        print(result["evidence_quotes"])
+        for item in result["evidence_quotes"]:
+            print(
+                f"- source: {item['source']} | "
+                f"page: {item['page']} | "
+                f"chunk_id: {item['chunk_id']} | "
+                f"quote: {item['quote']}"
+            )
         print()
 
         print("===== 신뢰도 =====")
