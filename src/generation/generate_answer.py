@@ -189,25 +189,30 @@ class BidMateRAGSession:
 
         # 사용자 입력 메시지 구성
         # 프로젝트 배경 + 현재 context + 질문 + 응답 규칙을 함께 전달
+        # 사용자 입력 메시지 구성
+
         user_input = f"""
-[프로젝트 배경]
-- 서비스명: 입찰메이트
-- 목적: 공공입찰 RFP 문서에서 핵심 정보를 빠르게 추출/요약/질의응답
-- 주요 관심 정보: 사업명, 발주기관, 예산, 수행기간, 제출기한, 제출방법, 요구기술, 참가자격, 평가기준, 필수서류, 유의사항
+        [프로젝트 배경]
+        - 서비스명: 입찰메이트
+        - 목적: 공공입찰 RFP 문서에서 핵심 정보를 빠르게 추출/요약/질의응답
+        - 주요 관심 정보: 사업명, 발주기관, 예산, 수행기간, 제출기한, 제출방법, 요구기술, 참가자격, 평가기준, 필수서류, 유의사항
 
-[현재 검색 문맥]
-{context}
+        [현재 검색 문맥]
+        {context}
 
-[사용자 질문]
-{query}
+        [사용자 질문]
+        {query}
 
-[응답 지침]
-1. 반드시 현재 검색 문맥만 근거로 답할 것
-2. 정보가 부족하면 '문맥에서 확인 불가'로 쓸 것
-3. 직접 답변 + 요약 + 필드 추출 + 근거 문서 번호를 포함할 것
-4. 질문이 애매하면 needs_clarification=true로 설정할 것
-5. 문서 간 충돌 정보가 있으면 conflicts에 기록할 것
-"""
+        [응답 지침]
+        1. 반드시 현재 검색 문맥만 근거로 답할 것
+        2. 정보가 부족하면 '문맥에서 확인 불가'로 쓸 것
+        3. 직접 답변 + 요약 + 필드 추출 + 실제 문서명 기반 근거를 포함할 것
+        4. citations에는 반드시 source, page, doc_id, chunk_id, score를 넣을 것
+        5. evidence_quotes에도 가능하면 source, page, chunk_id를 포함할 것
+        6. confidence는 high/medium/low가 아니라 0.0~1.0 사이 숫자로 반환할 것
+        7. 질문이 애매하면 needs_clarification=true로 설정할 것
+        8. 문서 간 충돌 정보가 있으면 conflicts에 기록할 것
+        """
 
         # Structured Output용 JSON Schema 정의
         # 모델 출력 형식을 강제해서 후처리 안정성을 높임
@@ -251,20 +256,42 @@ class BidMateRAGSession:
                             "notes",
                         ],
                     },
-                    "citations": {"type": "array", "items": {"type": "string"}},
+                    "citations": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "source": {"type": "string"},
+                                "page": {"type": ["integer", "null"]},
+                                "doc_id": {"type": ["string", "null"]},
+                                "chunk_id": {"type": ["string", "integer", "null"]},
+                                "score": {"type": ["number", "null"]},
+                            },
+                            "required": [
+                                "source",
+                                "page",
+                                "doc_id",
+                                "chunk_id",
+                                "score",
+                            ],
+                        },
+                    },
                     "evidence_quotes": {
                         "type": "array",
                         "items": {
                             "type": "object",
                             "additionalProperties": False,
                             "properties": {
-                                "document": {"type": "string"},
+                                "source": {"type": "string"},
+                                "page": {"type": ["integer", "null"]},
+                                "chunk_id": {"type": ["string", "integer", "null"]},
                                 "quote": {"type": "string"},
                             },
-                            "required": ["document", "quote"],
+                            "required": ["source", "page", "chunk_id", "quote"],
                         },
                     },
-                    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                    "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
                     "needs_clarification": {"type": "boolean"},
                     "clarification_question": {"type": ["string", "null"]},
                     "conflicts": {"type": "array", "items": {"type": "string"}},
@@ -282,7 +309,6 @@ class BidMateRAGSession:
                 ],
             },
         }
-
         # OpenAI Responses API 요청 파라미터 구성
         req = {
             "model": self.model,  # 사용할 모델
