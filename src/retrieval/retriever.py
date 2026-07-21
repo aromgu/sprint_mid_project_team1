@@ -1,20 +1,30 @@
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+openai_api_key = os.getenv("OPENAI_API_KEY")
+embeddings_model = os.getenv("EMBEDDINGS_MODEL")
+
+
 # ─────────────────────────────────────────────
 # 1) 임베딩 모델 준비
 # ─────────────────────────────────────────────
 embeddings = OpenAIEmbeddings(
-    model="text-embedding-3-small",
+    model=embeddings_model,
+    api_key=openai_api_key
 )
 
 # ─────────────────────────────────────────────
 # 2) 기존에 저장된 Chroma DB 불러오기 (읽기 전용으로 사용)
 # ─────────────────────────────────────────────
 vectorstore = Chroma(
-    collection_name="rfp_docs",  # 저장할 때 썼던 컬렉션 이름과 동일해야 함
+    collection_name="ai11_policy",  # 저장할 때 썼던 컬렉션 이름과 동일해야 함
     embedding_function=embeddings,  # 쿼리를 벡터로 바꿔줄 임베딩 모델
-    persist_directory="/home/data/chroma_db",  # 기존 DB가 저장된 폴더 경로
+    persist_directory="/home/data/chroma",  # 기존 DB가 저장된 폴더 경로
 )
 
 # ─────────────────────────────────────────────
@@ -51,18 +61,35 @@ def search_documents(query: str, k: int = 5) -> list[dict]:
     results = vectorstore.similarity_search_with_relevance_scores(query, k=k)
 
     retrieved_docs = []
+    
+    # for doc, score in results:
+    #     print(doc.metadata.keys())  # 실제로 어떤 키 이름들이 있는지 확인
+    #     break  # 하나만 보고 멈추기
 
     for doc, score in results:
         retrieved_docs.append(
             {
-                "id": doc.metadata.get("id"),
+                "id": doc.metadata.get("chunk_id"),
                 "text": doc.page_content,
                 "file_nm": doc.metadata.get("file_nm"),
                 "source": float(score),
                 "metadata": doc.metadata,
-                # "token_count": doc.metadata.get("token_count"),
-                # "create_date": doc.metadata.get("create_date"),
             }
         )
 
     return retrieved_docs
+
+
+# if __name__ == "__main__":
+#     # 테스트용 쿼리
+#     query = "사용자 편의성을 위한 메뉴 체계 수립"
+#     results = search_documents(query, k=1)
+    
+#     for idx, doc in enumerate(results):
+#         print(f"Result {idx + 1}:")
+#         print(f"ID: {doc['id']}")
+#         print(f"File Name: {doc['file_nm']}")
+#         print(f"Score: {doc['source']:.4f}")
+#         print(f"Text: {doc['text'][:500]}...")  # 앞부분만 출력
+#         print(f"Metadata: {doc['metadata']}")
+#         print("-" * 50)
