@@ -11,3 +11,6 @@ __pycache__/
 /data/raw/
 /data/processed/
 /data/private/
+
+# 로그는 업로드 하지 않도록 한다.
+logs/
