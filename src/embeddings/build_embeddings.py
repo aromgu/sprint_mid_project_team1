@@ -24,15 +24,44 @@ DEFAULT_COLLECTION_NAME = "ai11_policy"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_BATCH_SIZE = 100
 
-EXPECTED_INPUT_SHA256 = (
-    "c94567760dee6352248b23f71f64e2e88db0f7bcb1a705c1c17c4bef6d030b99"
+
+@dataclass(frozen=True)
+class InputContract:
+    """API 비용을 쓰기 전에 확인할 승인된 청크 파일의 고정 계약이다."""
+
+    name: str
+    input_sha256: str
+    chunk_count: int
+    document_count: int
+    total_tokens: int
+    schema_version: str
+    strategy_id: str
+
+
+LEGACY_INPUT_CONTRACT = InputContract(
+    name="naive_v1",
+    input_sha256=("c94567760dee6352248b23f71f64e2e88db0f7bcb1a705c1c17c4bef6d030b99"),
+    chunk_count=31_339,
+    document_count=98,
+    total_tokens=10_052_480,
+    schema_version="rfp_naive_chunk_v1",
+    strategy_id="naive_recursive_tiktoken_cl100k_base_512_102_v1",
 )
-EXPECTED_CHUNK_COUNT = 31_339
-EXPECTED_DOCUMENT_COUNT = 98
-EXPECTED_TOTAL_TOKENS = 10_052_480
+RCTS_V2_INPUT_CONTRACT = InputContract(
+    name="naive_rcts_v2",
+    input_sha256=("b7e6293c17db71d4f887bfcdd268411b0d30255a499aac76392bcf1f36f79ec8"),
+    chunk_count=31_451,
+    document_count=98,
+    total_tokens=10_316_103,
+    schema_version="rfp_naive_chunk_v1",
+    strategy_id="naive_langchain_recursive_cl100k_base_512_102_v2",
+)
+INPUT_CONTRACTS_BY_SHA256 = {
+    contract.input_sha256: contract
+    for contract in (LEGACY_INPUT_CONTRACT, RCTS_V2_INPUT_CONTRACT)
+}
+
 EXPECTED_EMBEDDING_DIMENSION = 1_536
-EXPECTED_SCHEMA_VERSION = "rfp_naive_chunk_v1"
-EXPECTED_STRATEGY_ID = "naive_recursive_tiktoken_cl100k_base_512_102_v1"
 
 # 검색 필터와 답변 근거 표시에 필요한 값만 Chroma metadata에 저장한다.
 # raw_text/retrieval_text처럼 긴 문자열은 metadata에 중복 저장하지 않는다.
@@ -80,6 +109,7 @@ class InputAudit:
     """API 호출 전 입력 파일의 무결성 검사 결과."""
 
     input_sha256: str
+    contract_name: str
     chunk_count: int
     document_count: int
     total_tokens: int
@@ -96,6 +126,9 @@ class IndexingReport:
     finished_at_utc: str
     input_path: str
     input_sha256: str
+    input_contract_name: str
+    schema_version: str
+    strategy_id: str
     source_document_count: int
     input_chunk_count: int
     embedding_model: str
@@ -175,6 +208,17 @@ def iter_rows(
                 raise ValueError(f"JSON 파싱 실패: {path}:{index + 1}") from exc
 
 
+def resolve_input_contract(input_sha256: str) -> InputContract:
+    """파일 SHA로 승인된 Naive 청킹 버전의 계약을 찾는다."""
+
+    contract = INPUT_CONTRACTS_BY_SHA256.get(input_sha256)
+    if contract is None:
+        raise ValueError(
+            f"승인되지 않은 임베딩 입력 SHA-256입니다: actual={input_sha256}"
+        )
+    return contract
+
+
 def audit_input(path: Path, *, max_records: int | None = None) -> InputAudit:
     """청크 수·ID·본문·스키마를 검사해 잘못된 입력의 API 비용 발생을 막는다."""
 
@@ -182,11 +226,7 @@ def audit_input(path: Path, *, max_records: int | None = None) -> InputAudit:
         raise FileNotFoundError(f"입력 파일이 없습니다: {path}")
 
     input_sha256 = sha256_file(path)
-    if input_sha256 != EXPECTED_INPUT_SHA256:
-        raise ValueError(
-            "입력 SHA-256이 최종 청크와 다릅니다: "
-            f"expected={EXPECTED_INPUT_SHA256}, actual={input_sha256}"
-        )
+    contract = resolve_input_contract(input_sha256)
 
     chunk_ids: set[str] = set()
     source_ids: set[str] = set()
@@ -220,25 +260,28 @@ def audit_input(path: Path, *, max_records: int | None = None) -> InputAudit:
         total_tokens += token_count
         chunk_count += 1
 
-    # 소량 smoke test가 아닌 전체 실행에서만 고정 완료 조건을 강제한다.
+    # smoke test도 잘못된 스키마·청킹 전략에는 API 비용을 쓰지 않는다.
+    if schema_versions != {contract.schema_version}:
+        raise ValueError(f"schema_version 오류: {sorted(schema_versions)}")
+    if strategy_ids != {contract.strategy_id}:
+        raise ValueError(f"strategy_id 오류: {sorted(strategy_ids)}")
+
+    # 소량 smoke test가 아닌 전체 실행에서만 전체 건수 조건을 강제한다.
     if max_records is None:
-        if chunk_count != EXPECTED_CHUNK_COUNT:
-            raise ValueError(f"청크 수 오류: {chunk_count} != {EXPECTED_CHUNK_COUNT}")
-        if len(source_ids) != EXPECTED_DOCUMENT_COUNT:
+        if chunk_count != contract.chunk_count:
+            raise ValueError(f"청크 수 오류: {chunk_count} != {contract.chunk_count}")
+        if len(source_ids) != contract.document_count:
             raise ValueError(
-                f"고유 문서 수 오류: {len(source_ids)} != {EXPECTED_DOCUMENT_COUNT}"
+                f"고유 문서 수 오류: {len(source_ids)} != {contract.document_count}"
             )
-        if total_tokens != EXPECTED_TOTAL_TOKENS:
+        if total_tokens != contract.total_tokens:
             raise ValueError(
-                f"전체 토큰 수 오류: {total_tokens} != {EXPECTED_TOTAL_TOKENS}"
+                f"전체 토큰 수 오류: {total_tokens} != {contract.total_tokens}"
             )
-        if schema_versions != {EXPECTED_SCHEMA_VERSION}:
-            raise ValueError(f"schema_version 오류: {sorted(schema_versions)}")
-        if strategy_ids != {EXPECTED_STRATEGY_ID}:
-            raise ValueError(f"strategy_id 오류: {sorted(strategy_ids)}")
 
     return InputAudit(
         input_sha256=input_sha256,
+        contract_name=contract.name,
         chunk_count=chunk_count,
         document_count=len(source_ids),
         total_tokens=total_tokens,
@@ -286,6 +329,8 @@ def create_vectorstore(
     embeddings: OpenAIEmbeddings,
     embedding_model: str,
     input_sha256: str,
+    schema_version: str,
+    strategy_id: str,
     collection_name: str,
     persist_directory: Path,
 ) -> Chroma:
@@ -298,12 +343,38 @@ def create_vectorstore(
         persist_directory=str(persist_directory),
         collection_metadata={
             "embedding_model": embedding_model,
-            "schema_version": EXPECTED_SCHEMA_VERSION,
-            "strategy_id": EXPECTED_STRATEGY_ID,
+            "schema_version": schema_version,
+            "strategy_id": strategy_id,
             "input_sha256": input_sha256,
         },
         collection_configuration={"hnsw": {"space": "cosine"}},
     )
+
+
+def validate_collection_contract(
+    metadata: dict[str, Any],
+    *,
+    audit: InputAudit,
+    embedding_model: str,
+) -> None:
+    """다른 청크나 모델로 만든 Collection에 섞어 쓰는 사고를 막는다."""
+
+    expected = {
+        "embedding_model": embedding_model,
+        "schema_version": audit.schema_versions[0],
+        "strategy_id": audit.strategy_ids[0],
+        "input_sha256": audit.input_sha256,
+    }
+    mismatches = {
+        key: {"saved": metadata.get(key), "requested": value}
+        for key, value in expected.items()
+        if metadata.get(key) != value
+    }
+    if mismatches:
+        raise RuntimeError(
+            "Collection 계약이 현재 입력과 다릅니다: "
+            + json.dumps(mismatches, ensure_ascii=False, sort_keys=True)
+        )
 
 
 def save_report(report: IndexingReport, path: Path) -> None:
@@ -347,17 +418,18 @@ def build_embeddings(
         embeddings=embeddings,
         embedding_model=embedding_model,
         input_sha256=audit.input_sha256,
+        schema_version=audit.schema_versions[0],
+        strategy_id=audit.strategy_ids[0],
         collection_name=collection_name,
         persist_directory=persist_directory,
     )
 
     collection_metadata = vectorstore._collection.metadata or {}
-    saved_model = collection_metadata.get("embedding_model")
-    if vectorstore._collection.count() and saved_model != embedding_model:
-        raise RuntimeError(
-            "기존 Collection의 embedding_model이 다릅니다: "
-            f"saved={saved_model}, requested={embedding_model}"
-        )
+    validate_collection_contract(
+        collection_metadata,
+        audit=audit,
+        embedding_model=embedding_model,
+    )
 
     existing_ids = set(vectorstore.get(include=[]).get("ids", []))
     unexpected_ids = existing_ids - set(audit.chunk_ids)
@@ -420,10 +492,10 @@ def build_embeddings(
         )
 
     final_collection_count = vectorstore._collection.count()
-    if max_records is None and final_collection_count != EXPECTED_CHUNK_COUNT:
+    if max_records is None and final_collection_count != audit.chunk_count:
         raise RuntimeError(
             "최종 Chroma 개수가 다릅니다: "
-            f"{final_collection_count} != {EXPECTED_CHUNK_COUNT}"
+            f"{final_collection_count} != {audit.chunk_count}"
         )
 
     total_seconds = perf_counter() - total_started
@@ -432,6 +504,9 @@ def build_embeddings(
         finished_at_utc=utc_now_iso(),
         input_path=str(input_path),
         input_sha256=audit.input_sha256,
+        input_contract_name=audit.contract_name,
+        schema_version=audit.schema_versions[0],
+        strategy_id=audit.strategy_ids[0],
         source_document_count=audit.document_count,
         input_chunk_count=audit.chunk_count,
         embedding_model=embedding_model,
