@@ -7,7 +7,7 @@ import os
 load_dotenv()
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
-embeddings_model = os.getenv("EMBEDDINGS_MODEL")
+embeddings_model = os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-small")
 
 
 # ─────────────────────────────────────────────
