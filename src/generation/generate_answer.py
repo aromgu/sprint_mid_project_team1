@@ -75,87 +75,44 @@ class BidMateRAGSession:
     def build_context(
         self, retrieved_docs: List[Dict[str, Any]], max_chars: int = 7000
     ) -> str:
-        """
-        retriever가 반환한 문서 조각들을 하나의 context 문자열로 합친다.
-
-        Parameters
-        ----------
-        retrieved_docs : List[Dict[str, Any]]
-            검색된 문서 조각 리스트
-            각 원소 예시:
-            {
-                "text": "...",
-                "source": "rfp_001.pdf",
-                "page": 3,
-                "score": 0.91,
-                "metadata": {"doc_id": "rfp_001"}
-            }
-
-        max_chars : int
-            context 최대 길이 제한
-            너무 길어지면 토큰 낭비가 심하므로 잘라준다.
-
-        Returns
-        -------
-        str
-            모델에 넣을 최종 context 문자열
-        """
-
-        # 문서 블록들을 저장할 리스트
         blocks = []
-
-        # 현재까지 누적된 문자열 길이
         total_len = 0
 
-        # 검색된 문서 조각들을 순서대로 순회
         for i, doc in enumerate(retrieved_docs, start=1):
-            # 문서 본문 텍스트 추출, 없으면 빈 문자열
             text = doc.get("text", "").strip()
 
-            # 원본 출처 파일명 또는 식별자
-            source = doc.get("source", f"doc_{i}")
-
-            # 유사도 점수
+            source = doc.get("file_nm")
             score = doc.get("score")
 
-            # 문서 페이지 번호
+            metadata = doc.get("metadata", {}) or {}
+
             page = doc.get("page")
+            if page is None:
+                page = metadata.get("page")
 
-            # 추가 메타데이터
-            metadata = doc.get("metadata", {})
+            chunk_id = doc.get("chunk_id")
+            if chunk_id is None:
+                chunk_id = metadata.get("chunk_id")
 
-            # 문서 헤더 문자열 생성
-            # 예: [문서 1] source: rfp_001.pdf
             header = f"[문서 {i}] source: {source}"
 
-            # 페이지 번호가 있으면 추가
             if page is not None:
                 header += f" | page: {page}"
 
-            # 점수가 있으면 소수점 넷째 자리까지 추가
+            if chunk_id is not None:
+                header += f" | chunk_id: {chunk_id}"
+
             if score is not None:
                 header += f" | score: {score:.4f}"
 
-            # 메타데이터가 있으면 key=value 형태로 이어붙임
-            if metadata:
-                meta_str = ", ".join(f"{k}={v}" for k, v in metadata.items())
-                header += f" | metadata: {meta_str}"
-
-            # 최종 문서 블록 생성
-            # 헤더 + 본문 텍스트
             block = f"{header}\n{text}\n"
 
-            # 길이 제한을 넘으면 더 이상 추가하지 않고 종료
             if total_len + len(block) > max_chars:
                 break
 
-            # 현재 블록을 리스트에 추가
             blocks.append(block)
-
-            # 누적 길이 갱신
             total_len += len(block)
 
-        # 여러 문서 블록을 줄바꿈으로 이어서 하나의 context 문자열로 반환
         return "\n".join(blocks)
 
     def ask(self, query: str, retrieved_docs: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -190,8 +147,7 @@ class BidMateRAGSession:
         # 사용자 입력 메시지 구성
         # 프로젝트 배경 + 현재 context + 질문 + 응답 규칙을 함께 전달
         # 사용자 입력 메시지 구성
-
-        user_input = f"""
+        user_input = f"""user_input =
         [프로젝트 배경]
         - 서비스명: 입찰메이트
         - 목적: 공공입찰 RFP 문서에서 핵심 정보를 빠르게 추출/요약/질의응답
@@ -206,13 +162,16 @@ class BidMateRAGSession:
         [응답 지침]
         1. 반드시 현재 검색 문맥만 근거로 답할 것
         2. 정보가 부족하면 '문맥에서 확인 불가'로 쓸 것
-        3. 직접 답변 + 요약 + 필드 추출 + 실제 문서명 기반 근거를 포함할 것
-        4. citations에는 반드시 source, page, doc_id, chunk_id, score를 넣을 것
-        5. evidence_quotes에도 가능하면 source, page, chunk_id를 포함할 것
-        6. confidence는 high/medium/low가 아니라 0.0~1.0 사이 숫자로 반환할 것
-        7. 질문이 애매하면 needs_clarification=true로 설정할 것
-        8. 문서 간 충돌 정보가 있으면 conflicts에 기록할 것
-        """
+        3. 직접 답변 + 요약 + 필드 추출 + 실제 citation['source'] 기반 근거를 포함할 것
+        4. citations에는 반드시 source, page, chunk_id, score를 넣을 것
+        5. citations의 source, page, chunk_id, score는 반드시 [현재 검색 문맥] 각 문서 헤더 값을 그대로 복사할 것
+        6. score가 문서 헤더에 있으면 반드시 숫자로 반환할 것
+        7. 값이 문맥 헤더에 없을 때만 null을 반환할 것
+        8. evidence_quotes에도 가능하면 source, page, chunk_id를 포함할 것
+        9. confidence는 0.0~1.0 사이 숫자로 반환할 것
+        10. 질문이 애매하면 needs_clarification=true로 설정할 것
+        11. 문서 간 충돌 정보가 있으면 conflicts에 기록할 것
+"""
 
         # Structured Output용 JSON Schema 정의
         # 모델 출력 형식을 강제해서 후처리 안정성을 높임
@@ -264,14 +223,12 @@ class BidMateRAGSession:
                             "properties": {
                                 "source": {"type": "string"},
                                 "page": {"type": ["integer", "null"]},
-                                "doc_id": {"type": ["string", "null"]},
                                 "chunk_id": {"type": ["string", "integer", "null"]},
                                 "score": {"type": ["number", "null"]},
                             },
                             "required": [
                                 "source",
                                 "page",
-                                "doc_id",
                                 "chunk_id",
                                 "score",
                             ],

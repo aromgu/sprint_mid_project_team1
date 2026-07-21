@@ -137,17 +137,16 @@ def main():
         print(result["summary"])
         print()
 
-        print("===== 추출 필드 =====")
-        print(result["fields"])
-        print()
+        # print("===== 추출 필드 =====")
+        # print(result["fields"])
+        # print()
 
         print("===== 근거 문서 =====")
         for citation in result["citations"]:
             print(
                 f"- source: {citation['source']} | "
-                f"page: {citation['page']} | "
-                f"doc_id: {citation['doc_id']} | "
                 f"chunk_id: {citation['chunk_id']} | "
+                f"score: {citation['score']}"
             )
         print()
 
@@ -155,7 +154,6 @@ def main():
         for item in result["evidence_quotes"]:
             print(
                 f"- source: {item['source']} | "
-                f"page: {item['page']} | "
                 f"chunk_id: {item['chunk_id']} | "
                 f"quote: {item['quote']}"
             )
