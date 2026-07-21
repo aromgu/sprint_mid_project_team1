@@ -1,4 +1,6 @@
 import logging
+import time
+from datetime import datetime
 
 from logging_config import setup_logging
 from src.generation.generate_answer import BidMateRAGSession
@@ -36,12 +38,42 @@ def main():
     logger.info("사용자 질문: %s", query)
 
     # retriever를 통해 top-k 문서 검색
+    retrieval_start_dt = datetime.now()
+    retrieval_start_perf = time.perf_counter()
+    logger.info(
+        "문서 검색 시작 | 시작시각=%s",
+        retrieval_start_dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+    )
+
     retrieved_docs = search_documents(query, k=5)
+
+    retrieval_end_dt = datetime.now()
+    retrieval_elapsed = time.perf_counter() - retrieval_start_perf
     logger.info("검색된 문서 수: %d", len(retrieved_docs))
+    logger.info(
+        "문서 검색 종료 | 종료시각=%s | 소요시간=%.3f초",
+        retrieval_end_dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        retrieval_elapsed,
+    )
 
     # 세션 객체를 사용해 질문 수행
+    ask_start_dt = datetime.now()
+    ask_start_perf = time.perf_counter()
+    logger.info(
+        "session.ask 시작 | 시작시각=%s",
+        ask_start_dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+    )
+
     result = session.ask(query, retrieved_docs)
+
+    ask_end_dt = datetime.now()
+    ask_elapsed = time.perf_counter() - ask_start_perf
     logger.info("session.ask 완료")
+    logger.info(
+        "session.ask 종료 | 종료시각=%s | 소요시간=%.3f초",
+        ask_end_dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+        ask_elapsed,
+    )
     logger.info("신뢰도: %s", result.get("confidence"))
 
     # 결과 출력
