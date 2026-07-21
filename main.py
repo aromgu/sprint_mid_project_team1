@@ -1,12 +1,15 @@
 import logging
+import os
 import time
 from datetime import datetime
 
+from dotenv import load_dotenv
+
 from logging_config import setup_logging
 from src.generation.generate_answer import BidMateRAGSession
-
 from src.retrieval.retriever import search_documents
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 
@@ -28,13 +31,14 @@ def main():
 
     # 세션 객체 생성
     # 실제 환경에서는 "YOUR_API_KEY" 대신 환경변수 사용 권장
-    session = BidMateRAGSession(api_key="YOUR_API_KEY")
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    session = BidMateRAGSession(api_key=openai_api_key)
 
     # retriever가 top-k로 뽑아줬다고 가정한 문서 조각 예시
     # 실제 프로젝트에서는 이 부분이 FAISS/Chroma/BM25 등의 검색 결과로 대체됨
 
     # 사용자 질문 정의
-    query = "이 사업의 예산, 수행기간, 제출기한을 알려줘"
+    query = "사업의 예산, 수행기간, 제출기한이 가장 적은 공고를 알려줘"
     logger.info("사용자 질문: %s", query)
 
     # retriever를 통해 top-k 문서 검색

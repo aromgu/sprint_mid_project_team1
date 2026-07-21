@@ -1,8 +1,8 @@
-from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings
+import os
 
 from dotenv import load_dotenv
-import os
+from langchain_chroma import Chroma
+from langchain_openai import OpenAIEmbeddings
 
 load_dotenv()
 
@@ -13,10 +13,7 @@ embeddings_model = os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-small")
 # ─────────────────────────────────────────────
 # 1) 임베딩 모델 준비
 # ─────────────────────────────────────────────
-embeddings = OpenAIEmbeddings(
-    model=embeddings_model,
-    api_key=openai_api_key
-)
+embeddings = OpenAIEmbeddings(model=embeddings_model, api_key=openai_api_key)
 
 # ─────────────────────────────────────────────
 # 2) 기존에 저장된 Chroma DB 불러오기 (읽기 전용으로 사용)
@@ -61,7 +58,7 @@ def search_documents(query: str, k: int = 5) -> list[dict]:
     results = vectorstore.similarity_search_with_relevance_scores(query, k=k)
 
     retrieved_docs = []
-    
+
     # for doc, score in results:
     #     print(doc.metadata.keys())  # 실제로 어떤 키 이름들이 있는지 확인
     #     break  # 하나만 보고 멈추기
@@ -78,18 +75,3 @@ def search_documents(query: str, k: int = 5) -> list[dict]:
         )
 
     return retrieved_docs
-
-
-# if __name__ == "__main__":
-#     # 테스트용 쿼리
-#     query = "사용자 편의성을 위한 메뉴 체계 수립"
-#     results = search_documents(query, k=1)
-    
-#     for idx, doc in enumerate(results):
-#         print(f"Result {idx + 1}:")
-#         print(f"ID: {doc['id']}")
-#         print(f"File Name: {doc['file_nm']}")
-#         print(f"Score: {doc['source']:.4f}")
-#         print(f"Text: {doc['text'][:500]}...")  # 앞부분만 출력
-#         print(f"Metadata: {doc['metadata']}")
-#         print("-" * 50)
