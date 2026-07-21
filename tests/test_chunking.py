@@ -7,12 +7,16 @@ import unittest
 from types import SimpleNamespace
 from typing import Any
 
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from src.chunking.split_text import (
     ChunkConfig,
     TiktokenCodec,
     block_chunk_text,
     boundary_key,
     build_chunk_corpus,
+    build_context_prefix,
+    build_recursive_character_splitter,
     build_streams,
     chunk_document,
     chunk_preprocessing_result,
@@ -110,7 +114,18 @@ def make_block(
 
 
 class TokenRangeTests(unittest.TestCase):
-    """최종 512토큰 상한과 실제 102토큰 중복을 검증한다."""
+    """LangChain 재귀 분할과 기존 512/102 품질 계약을 검증한다."""
+
+    def test_uses_langchain_recursive_character_text_splitter(self) -> None:
+        """운영 경계 선택기가 요청된 LangChain 클래스를 실제로 만든다."""
+        splitter = build_recursive_character_splitter(
+            CODEC,
+            chunk_size=410,
+            overlap_tokens=102,
+        )
+
+        self.assertIsInstance(splitter, RecursiveCharacterTextSplitter)
+        self.assertGreater(len(splitter.split_text("가" * 900)), 1)
 
     def test_context_included_limit_and_exact_overlap(self) -> None:
         """문서 문맥을 포함해 512 이하이고 인접 원문은 102토큰 겹친다."""
@@ -315,6 +330,35 @@ class MarkdownTableTests(unittest.TestCase):
             )
         )
         self.assertTrue(all("<table" not in row["raw_text"] for row in chunks))
+
+    def test_nearly_full_header_and_row_fall_back_without_data_loss(self) -> None:
+        """헤더가 예산을 소진해도 다음 행을 버리지 않고 한 셀 표로 나눈다."""
+        document = make_document()
+        probe_table = self.table_block("|  |\n| --- |\n| 데이터 |")
+        prefix = build_context_prefix(document, probe_table, "table")
+        base_header = "|  |\n| --- |"
+        fill_length = (
+            CONFIG.max_tokens
+            - 1
+            - len(CODEC.encode(make_retrieval_text(prefix, base_header)))
+        )
+        markdown = f"| {'가' * fill_length} |\n| --- |\n| 데이터 |"
+        table = self.table_block(markdown)
+
+        chunks = chunk_document(document, [table], CODEC, CONFIG)
+
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(row["token_count"] <= 512 for row in chunks))
+        self.assertTrue(
+            all(
+                "table_header_budget_exhausted_fallback" in row["quality_flags"]
+                for row in chunks
+            )
+        )
+        self.assertEqual(
+            sum(row["raw_text"].count("가") for row in chunks), fill_length
+        )
+        self.assertIn("데이터", "\n".join(row["raw_text"] for row in chunks))
 
 
 class CorpusContractTests(unittest.TestCase):

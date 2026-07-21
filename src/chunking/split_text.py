@@ -2,13 +2,15 @@
 
 이 모듈은 :mod:`src.preprocessing.clean_text`가 만든 메모리 결과만 입력으로
 받는다. 일반 본문은 같은 PDF 페이지 또는 HWP 섹션 안에서 이어 붙인 뒤
-문단→줄→공백→토큰 경계 순서로 나누고, 표는 본문과 섞지 않고 Markdown
-행 단위로 나눈다.
+LangChain ``RecursiveCharacterTextSplitter``로 문단→줄→공백→문자
+경계 순서로 나누고, 표는 본문과 섞지 않고 Markdown 행 단위로 나눈다.
 
 중요한 청킹 원칙
 -----------------
 * ``cl100k_base`` 기준 최종 임베딩 문자열이 최대 512토큰이어야 한다.
 * 같은 본문 stream의 인접 청크는 원문 토큰 축에서 102토큰을 겹친다.
+* Recursive splitter가 의미 경계를 고르고, 기존 토큰 맵이 UTF-8 안전성과
+  정확한 오버랩 및 원본 위치 좌표를 보장한다.
 * PDF 페이지, HWP 섹션, 표 경계가 바뀌면 overlap을 넘기지 않는다.
 * ``index_policy``가 ``index`` 또는 ``flatten``인 블록만 청킹한다.
 * 표는 HTML 없이 Markdown 행과 헤더를 보존한다.
@@ -27,16 +29,19 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from src.preprocessing.clean_text import PreprocessingResult
 
 SCHEMA_VERSION = "rfp_naive_chunk_v1"
-STRATEGY_ID = "naive_recursive_tiktoken_cl100k_base_512_102_v1"
+STRATEGY_ID = "naive_langchain_recursive_cl100k_base_512_102_v2"
 DEFAULT_MODEL = "text-embedding-3-small"
 DEFAULT_ENCODING = "cl100k_base"
 EXPECTED_TIKTOKEN_VERSION = "0.13.0"
 DEFAULT_MAX_TOKENS = 512
 DEFAULT_OVERLAP_TOKENS = 102
 RECURSIVE_SEPARATORS = ("\n\n", "\n", " ", "")
+TEXT_SPLITTER_NAME = "RecursiveCharacterTextSplitter"
 INDEXABLE_POLICIES = frozenset({"index", "flatten"})
 
 MARKDOWN_IMAGE = re.compile(r"!\[[^\]]*\]\(image://[^)]+\)", re.IGNORECASE)
@@ -111,6 +116,10 @@ class TableUnit:
     fragment_index: int
     text: str
     oversized_row_split: bool
+
+
+class TableRowBudgetError(ValueError):
+    """반복 헤더 때문에 표 행 조각을 한 글자도 넣지 못할 때 발생한다."""
 
 
 class TiktokenCodec:
@@ -426,43 +435,92 @@ def find_max_safe_end(
     raise ValueError("문서 문맥이 너무 길어 한 토큰도 안전하게 청킹할 수 없습니다")
 
 
+def build_recursive_character_splitter(
+    codec: TokenCodec,
+    chunk_size: int,
+    overlap_tokens: int,
+) -> RecursiveCharacterTextSplitter:
+    """프로젝트 토크나이저를 사용하는 LangChain 재귀 분할기를 만든다.
+
+    테스트용 문자 코덱과 운영용 tiktoken 코덱이 같은 경로를 사용하도록
+    ``from_tiktoken_encoder`` 대신 프로젝트 ``codec.encode``를 길이 함수로
+    주입한다. 문맥 prefix는 본문 밖에서 반복되므로 호출자가 차감한 실제
+    본문 예산을 ``chunk_size``로 전달해야 한다.
+    """
+    if chunk_size <= 0:
+        raise ValueError("Recursive splitter의 chunk_size는 양수여야 합니다")
+    if not 0 <= overlap_tokens < chunk_size:
+        raise ValueError("Recursive splitter의 overlap은 chunk_size보다 작아야 합니다")
+    return RecursiveCharacterTextSplitter(
+        separators=list(RECURSIVE_SEPARATORS),
+        keep_separator="end",
+        is_separator_regex=False,
+        chunk_size=chunk_size,
+        chunk_overlap=overlap_tokens,
+        length_function=lambda value: len(codec.encode(value)),
+        strip_whitespace=False,
+    )
+
+
 def choose_recursive_end(
     token_map: TokenTextMap,
     start_token: int,
     max_end_token: int,
     overlap_tokens: int,
+    codec: TokenCodec,
 ) -> int:
-    """문단→줄→공백→토큰 경계 순서로 분할 지점을 선택한다."""
+    """LangChain이 고른 의미 경계를 가장 가까운 안전한 토큰 경계로 맞춘다.
+
+    ``find_max_safe_end``가 문맥을 포함한 512토큰 상한을 먼저 계산한다.
+    LangChain splitter는 남은 원문에서 문단→줄→공백→문자 순으로 첫
+    경계를 고르고, 이 함수는 UTF-8 문자 중간을 자르지 않는 토큰 경계로만
+    결과를 정렬한다. 다음 청크의 정확한 토큰 오버랩은 바깥 루프가 맡는다.
+    """
     if max_end_token == len(token_map):
         return max_end_token
-    minimum_token = start_token + int((max_end_token - start_token) * 0.6)
-    minimum_char = token_map.token_to_char.get(minimum_token)
-    if minimum_char is None:
-        safe_position = bisect.bisect_left(token_map.safe_token_indices, minimum_token)
-        minimum_char = token_map.token_to_char[
-            token_map.safe_token_indices[safe_position]
-        ]
-    start_char = token_map.token_to_char[start_token]
-    max_char = token_map.token_to_char[max_end_token]
 
-    for separator in RECURSIVE_SEPARATORS:
-        if not separator:
+    safe_body = token_map.slice(start_token, max_end_token)
+    body_budget = len(codec.encode(safe_body))
+    splitter = build_recursive_character_splitter(
+        codec,
+        body_budget,
+        overlap_tokens,
+    )
+    # 첫 경계를 얻는 데 뒤쪽 stream 전체를 매번 다시 분할할 필요는 없다.
+    # 본문 예산을 처음 초과하는 안전한 경계까지만 probe해 대용량 문서에서도
+    # 청크 수에 대해 제곱으로 느려지는 일을 막는다.
+    probe_end_token = max_end_token
+    for candidate in token_map.safe_token_indices:
+        if candidate <= max_end_token:
+            continue
+        probe_text = token_map.slice(start_token, candidate)
+        probe_end_token = candidate
+        if len(codec.encode(probe_text)) > body_budget:
             break
-        search_end = max_char
-        while search_end > minimum_char:
-            marker = token_map.text.rfind(separator, minimum_char, search_end)
-            if marker < start_char:
-                break
-            boundary_char = marker + len(separator)
-            boundary_token = token_map.char_to_token.get(boundary_char)
-            if (
-                boundary_token is not None
-                and boundary_token > start_token
-                and boundary_token - overlap_tokens > start_token
-                and boundary_token - overlap_tokens in token_map.safe_token_index_set
-            ):
-                return boundary_token
-            search_end = marker
+    remaining_text = token_map.slice(start_token, probe_end_token)
+    parts = splitter.split_text(remaining_text)
+    if not parts:
+        raise ValueError("RecursiveCharacterTextSplitter가 빈 결과를 반환했습니다")
+
+    first_part = parts[0]
+    if not remaining_text.startswith(first_part):
+        # strip_whitespace=False와 keep_separator='end' 계약이 바뀌면 원문
+        # 좌표를 안전하게 보존할 수 없으므로 조용히 진행하지 않는다.
+        raise ValueError("Recursive splitter 결과가 원문 시작 위치와 다릅니다")
+
+    start_char = token_map.token_to_char[start_token]
+    target_char = start_char + len(first_part)
+    for boundary_token in reversed(token_map.safe_token_indices):
+        if boundary_token > max_end_token or boundary_token <= start_token:
+            continue
+        if token_map.token_to_char[boundary_token] > target_char:
+            continue
+        if overlap_tokens and (
+            boundary_token - overlap_tokens <= start_token
+            or boundary_token - overlap_tokens not in token_map.safe_token_index_set
+        ):
+            continue
+        return boundary_token
     return max_end_token
 
 
@@ -495,6 +553,7 @@ def split_text_token_ranges(
             start_token,
             max_end,
             overlap,
+            codec,
         )
         previous_overlap = previous_end - start_token if ranges else 0
         ranges.append((start_token, end_token, previous_overlap))
@@ -806,13 +865,20 @@ def split_oversized_table_row(
 ) -> list[TableUnit]:
     """한 표 행이 예산을 넘을 때만 행 내부를 Recursive 방식으로 나눈다."""
     row_prefix = f"{prefix}\n\n{header_text}" if header_text else prefix
-    token_map, ranges = split_text_token_ranges(
-        row_text,
-        row_prefix,
-        codec,
-        config,
-        overlap_tokens=0,
-    )
+    try:
+        token_map, ranges = split_text_token_ranges(
+            row_text,
+            row_prefix,
+            codec,
+            config,
+            overlap_tokens=0,
+        )
+    except ValueError as error:
+        if str(error) != "문서 문맥이 너무 길어 한 토큰도 안전하게 청킹할 수 없습니다":
+            raise
+        raise TableRowBudgetError(
+            "반복할 표 헤더가 행 분할에 필요한 토큰 예산을 모두 사용했습니다"
+        ) from error
     return [
         TableUnit(
             row_number=row_number,
@@ -822,6 +888,57 @@ def split_oversized_table_row(
         )
         for fragment_index, (start, end, _) in enumerate(ranges, start=1)
     ]
+
+
+def table_header_exhausts_row_budget(
+    segment: MarkdownTableSegment,
+    header_text: str,
+    prefix: str,
+    codec: TokenCodec,
+    config: ChunkConfig,
+) -> bool:
+    """헤더 뒤에 행의 첫 안전 문자조차 들어갈 수 없는지 확인한다.
+
+    일부 복합 표는 거의 모든 내용을 첫 행(헤더)에 담고 마지막에 짧은
+    데이터 행 하나만 둔다. 헤더 자체가 512토큰 이하여도 남은 예산이 0에
+    가까우면 행 내부 분할을 시작할 수 없으므로, 이때는 표 전체를 한 셀
+    Markdown으로 평탄화해 RCTS로 나눈다.
+    """
+    for row_number, row_text in enumerate(segment.data_rows, start=1):
+        complete_row = table_raw_text(
+            header_text,
+            [TableUnit(row_number, 1, row_text, False)],
+        )
+        if (
+            len(codec.encode(make_retrieval_text(prefix, complete_row)))
+            <= config.max_tokens
+        ):
+            continue
+
+        token_map = TokenTextMap(row_text, codec)
+        first_safe_end = next(
+            (index for index in token_map.safe_token_indices if index > 0),
+            None,
+        )
+        if first_safe_end is None:
+            continue
+        first_fragment = table_raw_text(
+            header_text,
+            [
+                TableUnit(
+                    row_number,
+                    1,
+                    token_map.slice(0, first_safe_end),
+                    True,
+                )
+            ],
+        )
+        if (
+            len(codec.encode(make_retrieval_text(prefix, first_fragment)))
+            > config.max_tokens
+        ):
+            return True
+    return False
 
 
 def prepare_table_units(
@@ -914,7 +1031,13 @@ def split_oversized_header_ranges(
             max_end = end_token
         if max_end <= start_token:
             raise ValueError("긴 표 헤더를 Markdown 토큰 예산 안에 넣을 수 없습니다")
-        end_token = choose_recursive_end(token_map, start_token, max_end, 0)
+        end_token = choose_recursive_end(
+            token_map,
+            start_token,
+            max_end,
+            0,
+            codec,
+        )
         ranges.append((start_token, end_token))
         start_token = end_token
     return token_map, ranges
@@ -930,8 +1053,9 @@ def chunk_oversized_table_header(
     codec: TokenCodec,
     config: ChunkConfig,
     content_type: str,
+    fallback_quality_flag: str = "oversized_table_header_split",
 ) -> list[dict[str, Any]]:
-    """512토큰을 넘는 단일 헤더를 한 셀 Markdown 표 여러 개로 보존한다."""
+    """표 구조가 예산에 맞지 않으면 한 셀 Markdown 여러 개로 보존한다."""
     source_text = oversized_header_source_text(segment)
     token_map, ranges = split_oversized_header_ranges(
         source_text,
@@ -974,7 +1098,7 @@ def chunk_oversized_table_header(
                     ),
                 },
                 extra_quality_flags=(
-                    "oversized_table_header_split",
+                    fallback_quality_flag,
                     "table_structure_flattened_fallback",
                 ),
             )
@@ -1008,12 +1132,47 @@ def chunk_table_segment(
             config=config,
             content_type=content_type,
         )
-    header_text, units, preparation_flags = prepare_table_units(
+    header_text = segment_header_text(segment)
+    if table_header_exhausts_row_budget(
         segment,
+        header_text,
         prefix,
         codec,
         config,
-    )
+    ):
+        return chunk_oversized_table_header(
+            document=document,
+            block=block,
+            segment=segment,
+            segment_count=segment_count,
+            prefix=prefix,
+            codec=codec,
+            config=config,
+            content_type=content_type,
+            fallback_quality_flag="table_header_budget_exhausted_fallback",
+        )
+    try:
+        header_text, units, preparation_flags = prepare_table_units(
+            segment,
+            prefix,
+            codec,
+            config,
+        )
+    except TableRowBudgetError:
+        # BPE 토큰은 앞 문맥에 따라 경계가 달라질 수 있다. 첫 행 조각은
+        # 들어가더라도 다음 조각이 헤더 뒤에 들어가지 않는 경우, 표 전체를
+        # 한 셀 GFM으로 옮겨 내용 손실 없이 Recursive 방식으로 다시 나눈다.
+        return chunk_oversized_table_header(
+            document=document,
+            block=block,
+            segment=segment,
+            segment_count=segment_count,
+            prefix=prefix,
+            codec=codec,
+            config=config,
+            content_type=content_type,
+            fallback_quality_flag="table_header_budget_exhausted_fallback",
+        )
 
     # 빈 표도 헤더 골격 자체를 검색 가능한 Markdown 청크 하나로 남긴다.
     if not units:
@@ -1413,6 +1572,8 @@ def build_summary(
         "tokenizer_model": codec.model_name,
         "tokenizer_encoding": codec.encoding_name,
         "tokenizer_version": codec.version,
+        "text_splitter_name": TEXT_SPLITTER_NAME,
+        "text_splitter_version": importlib.metadata.version("langchain-text-splitters"),
         "document_count": len(documents),
         "block_count": len(blocks),
         "indexable_block_count": sum(is_indexable(block) for block in blocks),
