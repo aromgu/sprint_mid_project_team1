@@ -128,52 +128,50 @@ def main():
         # ----------------------------
         # 3. 결과 출력
         # ----------------------------
-        print()
-        print("===== 직접 답변 =====")
-        print(result["answer"])
-        print()
-
-        print("===== 요약 =====")
-        print(result["summary"])
-        print()
-
-        # print("===== 추출 필드 =====")
-        # print(result["fields"])
-        # print()
-
-        print("===== 근거 문서 =====")
-        for citation in result["citations"]:
-            print(
+        citations_text = "\n".join(
+            [
                 f"- source: {citation['source']} | "
                 f"chunk_id: {citation['chunk_id']} | "
                 f"score: {citation['score']}"
-            )
-        print()
+                for citation in result["citations"]
+            ]
+        )
 
-        print("===== 근거 인용 =====")
-        for item in result["evidence_quotes"]:
-            print(
+        evidence_text = "\n".join(
+            [
                 f"- source: {item['source']} | "
                 f"chunk_id: {item['chunk_id']} | "
                 f"quote: {item['quote']}"
-            )
+                for item in result["evidence_quotes"]
+            ]
+        )
+
+        answer_block = "\n\n".join(
+            [
+                "===== 직접 답변 =====",
+                result["answer"],
+                "===== 요약 =====",
+                result["summary"],
+                "===== 근거 문서 =====",
+                citations_text,
+                "===== 근거 인용 =====",
+                evidence_text,
+                "===== 신뢰도 =====",
+                str(result["confidence"]),
+                "===== 추가 확인 필요 여부 =====",
+                str(result["needs_clarification"]),
+                "===== 확인 질문 =====",
+                str(result["clarification_question"]),
+                "===== 충돌 정보 =====",
+                str(result["conflicts"]),
+            ]
+        )
+
+        print()
+        print(answer_block)
         print()
 
-        print("===== 신뢰도 =====")
-        print(result["confidence"])
-        print()
-
-        print("===== 추가 확인 필요 여부 =====")
-        print(result["needs_clarification"])
-        print()
-
-        print("===== 확인 질문 =====")
-        print(result["clarification_question"])
-        print()
-
-        print("===== 충돌 정보 =====")
-        print(result["conflicts"])
-        print()
+        logger.info("응답 결과\n%s", answer_block)
 
 
 if __name__ == "__main__":
