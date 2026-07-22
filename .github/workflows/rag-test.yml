@@ -1,0 +1,43 @@
+name: RAG Pipeline Automated Test
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  rag-evaluation:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 코드 체크아웃
+      uses: actions/checkout@v4
+
+    # 1. setup-python 대신 astral-sh/setup-uv 사용 (Python 3.11 + uv 환경 구성 및 자동 캐싱)
+    - name: Setup uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        python-version: '3.11'
+
+    # 2. uv를 사용한 고속 패키지 설치
+    - name: 의존성 패키지 설치
+      run: |
+        uv pip install --system -r requirements.txt
+        uv pip install --system pytest depeval ragas wandb
+
+    # 3. RAG 테스트 및 W&B 연동 실행
+    - name: RAG 파이프라인 테스트 및 평가 실행
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+      run: |
+        uv run pytest test_rag_pipeline.py --junitxml=pytest-report.xml
+
+    - name: 테스트 결과 리포트 업로드 (선택)
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: rag-test-report
+        path: pytest-report.xml
