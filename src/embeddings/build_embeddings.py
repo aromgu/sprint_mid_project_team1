@@ -18,13 +18,14 @@ from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 
 DEFAULT_INPUT_PATH = Path(
-    "/home/data/advanced/chunks/chunks_naive_rcts_v3_metadata_v1.jsonl.gz"
+    "/home/data/advanced/chunks/chunks_naive_rcts_v3_metadata_v1_redacted_v1.jsonl.gz"
 )
-DEFAULT_PERSIST_DIRECTORY = Path("/home/data/chroma_naive_v3_metadata_v1")
+DEFAULT_PERSIST_DIRECTORY = Path("/home/data/chroma_naive_v3_metadata_v1_redacted_v1")
 DEFAULT_REPORT_PATH = Path(
-    "/home/data/reports/ai11_policy_naive_v3_metadata_v1_indexing_report.json"
+    "/home/data/reports/"
+    "ai11_policy_naive_v3_metadata_v1_redacted_v1_indexing_report.json"
 )
-DEFAULT_COLLECTION_NAME = "ai11_policy_naive_v3_metadata_v1"
+DEFAULT_COLLECTION_NAME = "ai11_policy_naive_v3_metadata_v1_redacted_v1"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_BATCH_SIZE = 100
 
@@ -41,6 +42,8 @@ class InputContract:
     schema_version: str
     strategy_id: str
     metadata_schema_version: str | None = None
+    privacy_schema_version: str | None = None
+    embedding_total_tokens: int | None = None
 
 
 LEGACY_INPUT_CONTRACT = InputContract(
@@ -70,15 +73,17 @@ RCTS_V3_INPUT_CONTRACT = InputContract(
     schema_version="rfp_naive_chunk_v1",
     strategy_id="naive_langchain_recursive_cl100k_base_512_102_v3",
 )
-RCTS_V3_METADATA_V1_INPUT_CONTRACT = InputContract(
-    name="naive_rcts_v3_business_metadata_v1",
-    input_sha256=("4c77826f4705f8df70dfa15d180312ec133d624ab25ace85cfd32f0c9f8f9194"),
+RCTS_V3_METADATA_V1_REDACTED_INPUT_CONTRACT = InputContract(
+    name="naive_rcts_v3_business_metadata_v1_redacted_v1",
+    input_sha256=("a323a9537ec5ca3dbdc6ef80661ba398005f149d8b4e5a5e147299354f01f325"),
     chunk_count=31_627,
     document_count=98,
     total_tokens=10_414_025,
     schema_version="rfp_naive_chunk_v1",
     strategy_id="naive_langchain_recursive_cl100k_base_512_102_v3",
     metadata_schema_version="business_metadata_v1",
+    privacy_schema_version="embedding_text_redaction_v1",
+    embedding_total_tokens=10_413_717,
 )
 INPUT_CONTRACTS_BY_SHA256 = {
     contract.input_sha256: contract
@@ -86,7 +91,7 @@ INPUT_CONTRACTS_BY_SHA256 = {
         LEGACY_INPUT_CONTRACT,
         RCTS_V2_INPUT_CONTRACT,
         RCTS_V3_INPUT_CONTRACT,
-        RCTS_V3_METADATA_V1_INPUT_CONTRACT,
+        RCTS_V3_METADATA_V1_REDACTED_INPUT_CONTRACT,
     )
 }
 
@@ -116,6 +121,8 @@ METADATA_FIELDS = (
     "project_summary_review_status",
     "business_metadata_match_rule",
     "metadata_schema_version",
+    "privacy_schema_version",
+    "sensitive_text_redaction_count",
     "content_type",
     "page_start",
     "page_end",
@@ -154,6 +161,8 @@ class InputAudit:
     schema_versions: tuple[str, ...]
     strategy_ids: tuple[str, ...]
     metadata_schema_versions: tuple[str, ...]
+    privacy_schema_versions: tuple[str, ...]
+    embedding_total_tokens: int
 
 
 @dataclass(frozen=True)
@@ -168,8 +177,10 @@ class IndexingReport:
     schema_version: str
     strategy_id: str
     metadata_schema_version: str | None
+    privacy_schema_version: str | None
     source_document_count: int
     input_chunk_count: int
+    input_embedding_tokens: int
     embedding_model: str
     embedding_dimension: int
     collection_name: str
@@ -239,6 +250,16 @@ def normalize_metadata(
         )
         metadata["filename_alias_count"] = len(filename_aliases)
 
+    redaction_types = row.get("sensitive_text_redaction_types")
+    if isinstance(redaction_types, list) and all(
+        isinstance(value, str) for value in redaction_types
+    ):
+        metadata["sensitive_text_redaction_types"] = json.dumps(
+            redaction_types,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
     metadata["embedding_model"] = embedding_model
     metadata["create_date"] = create_date
     return metadata
@@ -286,7 +307,9 @@ def audit_input(path: Path, *, max_records: int | None = None) -> InputAudit:
     schema_versions: set[str] = set()
     strategy_ids: set[str] = set()
     metadata_schema_versions: set[str] = set()
+    privacy_schema_versions: set[str] = set()
     total_tokens = 0
+    embedding_total_tokens = 0
     chunk_count = 0
 
     for row in iter_rows(path, max_records=max_records):
@@ -314,7 +337,28 @@ def audit_input(path: Path, *, max_records: int | None = None) -> InputAudit:
         metadata_schema_version = row.get("metadata_schema_version")
         if metadata_schema_version not in (None, ""):
             metadata_schema_versions.add(str(metadata_schema_version))
+        privacy_schema_version = row.get("privacy_schema_version")
+        if privacy_schema_version not in (None, ""):
+            privacy_schema_versions.add(str(privacy_schema_version))
+
+        embedding_text = row.get("embedding_text")
+        if contract.privacy_schema_version is not None:
+            if not isinstance(embedding_text, str) or not embedding_text.strip():
+                raise ValueError(f"embedding_text가 비어 있습니다: {chunk_id}")
+            embedding_token_count = row.get("embedding_token_count")
+            if (
+                not isinstance(embedding_token_count, int)
+                or not 1 <= embedding_token_count <= 512
+            ):
+                raise ValueError(
+                    "embedding_token_count 범위 오류: "
+                    f"{chunk_id}={embedding_token_count}"
+                )
+        else:
+            embedding_token_count = token_count
+
         total_tokens += token_count
+        embedding_total_tokens += embedding_token_count
         chunk_count += 1
 
     # smoke test도 잘못된 스키마·청킹 전략에는 API 비용을 쓰지 않는다.
@@ -330,6 +374,14 @@ def audit_input(path: Path, *, max_records: int | None = None) -> InputAudit:
             f"{sorted(metadata_schema_versions)} != "
             f"{contract.metadata_schema_version}"
         )
+    if contract.privacy_schema_version is not None and privacy_schema_versions != {
+        contract.privacy_schema_version
+    }:
+        raise ValueError(
+            "privacy_schema_version 오류: "
+            f"{sorted(privacy_schema_versions)} != "
+            f"{contract.privacy_schema_version}"
+        )
 
     # 소량 smoke test가 아닌 전체 실행에서만 전체 건수 조건을 강제한다.
     if max_records is None:
@@ -343,6 +395,14 @@ def audit_input(path: Path, *, max_records: int | None = None) -> InputAudit:
             raise ValueError(
                 f"전체 토큰 수 오류: {total_tokens} != {contract.total_tokens}"
             )
+        if (
+            contract.embedding_total_tokens is not None
+            and embedding_total_tokens != contract.embedding_total_tokens
+        ):
+            raise ValueError(
+                "전체 embedding 토큰 수 오류: "
+                f"{embedding_total_tokens} != {contract.embedding_total_tokens}"
+            )
 
     return InputAudit(
         input_sha256=input_sha256,
@@ -354,6 +414,8 @@ def audit_input(path: Path, *, max_records: int | None = None) -> InputAudit:
         schema_versions=tuple(sorted(schema_versions)),
         strategy_ids=tuple(sorted(strategy_ids)),
         metadata_schema_versions=tuple(sorted(metadata_schema_versions)),
+        privacy_schema_versions=tuple(sorted(privacy_schema_versions)),
+        embedding_total_tokens=embedding_total_tokens,
     )
 
 
@@ -372,10 +434,17 @@ def iter_chunk_batches(
 
     batch: list[ChunkRecord] = []
     for row in iter_rows(path, max_records=max_records):
+        embedding_text = row.get("embedding_text")
+        if row.get("privacy_schema_version") and (
+            not isinstance(embedding_text, str) or not embedding_text.strip()
+        ):
+            raise ValueError(
+                f"privacy 입력의 embedding_text가 비어 있습니다: {row.get('chunk_id')}"
+            )
         batch.append(
             ChunkRecord(
                 chunk_id=row["chunk_id"],
-                retrieval_text=row["retrieval_text"],
+                retrieval_text=embedding_text or row["retrieval_text"],
                 metadata=normalize_metadata(
                     row,
                     embedding_model=embedding_model,
@@ -398,6 +467,7 @@ def create_vectorstore(
     schema_version: str,
     strategy_id: str,
     metadata_schema_version: str | None,
+    privacy_schema_version: str | None,
     collection_name: str,
     persist_directory: Path,
 ) -> Chroma:
@@ -412,6 +482,8 @@ def create_vectorstore(
     }
     if metadata_schema_version is not None:
         collection_metadata["metadata_schema_version"] = metadata_schema_version
+    if privacy_schema_version is not None:
+        collection_metadata["privacy_schema_version"] = privacy_schema_version
 
     return Chroma(
         collection_name=collection_name,
@@ -438,6 +510,8 @@ def validate_collection_contract(
     }
     if audit.metadata_schema_versions:
         expected["metadata_schema_version"] = audit.metadata_schema_versions[0]
+    if audit.privacy_schema_versions:
+        expected["privacy_schema_version"] = audit.privacy_schema_versions[0]
     mismatches = {
         key: {"saved": metadata.get(key), "requested": value}
         for key, value in expected.items()
@@ -497,6 +571,9 @@ def build_embeddings(
             audit.metadata_schema_versions[0]
             if audit.metadata_schema_versions
             else None
+        ),
+        privacy_schema_version=(
+            audit.privacy_schema_versions[0] if audit.privacy_schema_versions else None
         ),
         collection_name=collection_name,
         persist_directory=persist_directory,
@@ -590,8 +667,12 @@ def build_embeddings(
             if audit.metadata_schema_versions
             else None
         ),
+        privacy_schema_version=(
+            audit.privacy_schema_versions[0] if audit.privacy_schema_versions else None
+        ),
         source_document_count=audit.document_count,
         input_chunk_count=audit.chunk_count,
+        input_embedding_tokens=audit.embedding_total_tokens,
         embedding_model=embedding_model,
         embedding_dimension=embedding_dimension or EXPECTED_EMBEDDING_DIMENSION,
         collection_name=collection_name,
