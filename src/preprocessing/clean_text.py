@@ -1343,12 +1343,16 @@ def process_pdf_document(
             events: list[tuple[float, int, str, Any, list[str]]] = []
             for top, line_text in group_pdf_words_into_lines(outside_words):
                 events.append((top, 0, "text", line_text, []))
+            page_table_offset = len(tables)
             for table_index, (
                 detected_table,
                 matrix,
                 _,
                 use_text_fallback,
             ) in enumerate(prepared_tables):
+                prepared_table_id = (
+                    f"{source_id}:pdf:T{page_table_offset + table_index + 1:06d}"
+                )
                 table_flags = ["pdf_table_text_fallback"] if use_text_fallback else []
                 table_top = float(detected_table.bbox[1])
                 events.append(
@@ -1356,7 +1360,7 @@ def process_pdf_document(
                         table_top,
                         1,
                         "table",
-                        (detected_table, matrix),
+                        (detected_table, matrix, prepared_table_id),
                         table_flags,
                     )
                 )
@@ -1372,8 +1376,12 @@ def process_pdf_document(
                             (
                                 table_top,
                                 2,
-                                "text",
-                                fallback_text,
+                                "table_text_fallback",
+                                (
+                                    fallback_text,
+                                    prepared_table_id,
+                                    tuple(map(float, detected_table.bbox)),
+                                ),
                                 table_flags,
                             )
                         )
@@ -1409,24 +1417,34 @@ def process_pdf_document(
                 bbox_value: tuple[float, float, float, float] | None = None
                 quality_flags = list(event_flags)
 
-                if event_type == "text":
-                    display_content = normalize_text(str(payload))
+                if event_type in {"text", "table_text_fallback"}:
+                    if event_type == "table_text_fallback":
+                        fallback_text, table_id, fallback_bbox = payload
+                        display_content = normalize_text(str(fallback_text))
+                        bbox_value = tuple(
+                            round(float(value), 3) for value in fallback_bbox
+                        )
+                    else:
+                        display_content = normalize_text(str(payload))
                     retrieval_text = display_content
                     index_policy = "index" if retrieval_text else "exclude"
-                    if "pdf_table_text_fallback" in quality_flags:
+                    if event_type == "table_text_fallback":
                         index_reason = "incomplete_pdf_table_bbox_text"
                     else:
                         index_reason = (
                             "pdf_page_text" if retrieval_text else "empty_pdf_text"
                         )
-                    detected_heading = heading_from_text(retrieval_text)
-                    if detected_heading:
-                        section_path = detected_heading
+                        detected_heading = heading_from_text(retrieval_text)
+                        if detected_heading:
+                            section_path = detected_heading
                     block_type = "text"
                 elif event_type == "table":
-                    pdf_table, matrix = payload
+                    pdf_table, matrix, prepared_table_id = payload
                     table_number = len(tables) + 1
-                    table_id = f"{source_id}:pdf:T{table_number:06d}"
+                    expected_table_id = f"{source_id}:pdf:T{table_number:06d}"
+                    if prepared_table_id != expected_table_id:
+                        raise ValueError("PDF 표 ID 사전 계산 순서가 달라졌습니다")
+                    table_id = prepared_table_id
                     display_content = render_pdf_table(matrix)
                     retrieval_text = pdf_matrix_text(matrix)
                     table_class, index_policy, index_reason = classify_pdf_table(matrix)

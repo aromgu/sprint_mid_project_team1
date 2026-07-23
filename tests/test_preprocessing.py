@@ -704,6 +704,8 @@ class PreprocessingTests(unittest.TestCase):
             if block["block_type"] == "text"
             and "pdf_table_text_fallback" in block["quality_flags"]
         )
+        self.assertEqual(fallback_block["table_id"], table_block["table_id"])
+        self.assertEqual(fallback_block["bbox"], table_block["bbox"])
         self.assertEqual(
             fallback_block["index_reason"],
             "incomplete_pdf_table_bbox_text",

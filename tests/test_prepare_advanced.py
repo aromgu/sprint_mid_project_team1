@@ -202,6 +202,59 @@ def test_pdf_text_uses_page_boundary_and_only_pdf_has_page() -> None:
     assert all(block["page"] == 2 for block in result.blocks)
 
 
+def test_pdf_incomplete_table_fallback_stays_table_markdown() -> None:
+    """복구한 PDF 표 원문은 일반 문단이 아니라 Markdown 표로만 벡터화한다."""
+    base = _base_result(file_type="pdf")
+    table_id = str(base.blocks[1]["table_id"])
+    fallback_block = {
+        **base.blocks[0],
+        "block_id": f"{SOURCE_ID}:B000004",
+        "block_order": 4,
+        "block_type": "text",
+        "display_content": "요구사항번호 PMR-003\n사업수행 및 승인절차",
+        "retrieval_text": "요구사항번호 PMR-003\n사업수행 및 승인절차",
+        "index_reason": "incomplete_pdf_table_bbox_text",
+        "table_id": table_id,
+        "bbox": (0.0, 20.0, 100.0, 80.0),
+        "quality_flags": ["pdf_table_text_fallback"],
+    }
+    base_with_fallback = PreprocessingResult(
+        document={
+            **base.document,
+            "pdf_table_text_fallback_count": 1,
+            "pdf_table_text_fallback_page_count": 1,
+            "quality_flags": ["pdf_table_text_fallback"],
+        },
+        blocks=(*base.blocks, fallback_block),
+        tables=base.tables,
+        images=base.images,
+    )
+
+    result = build_advanced_result(
+        _manifest("pdf"),
+        base_with_fallback,
+        _formats(),
+    )
+    recovered = next(
+        block
+        for block in result.blocks
+        if block["index_reason"] == "incomplete_pdf_table_bbox_text"
+    )
+
+    assert recovered["content_type"] == "table"
+    assert "요구사항번호 PMR-003" in recovered["table_markdown"]
+    assert recovered["table_html"].startswith("<table")
+    assert recovered["vectorize_field"] == "table_markdown"
+    assert recovered["dense_eligible"] is True
+    assert recovered["kss_eligible"] is False
+    assert recovered["bm25_eligible"] is False
+    assert recovered["text"] is None
+    assert result.document["pdf_table_text_fallback_count"] == 1
+    assert result.document["pdf_table_text_fallback_page_count"] == 1
+    assert "pdf_table_text_fallback" in result.document["quality_flags"]
+    assert result.tables[0]["format_storage_block_id"] == recovered["block_id"]
+
+
 def test_missing_hwp_para_uses_block_id_without_merging() -> None:
     """rhwp가 para_idx를 주지 않으면 그 블록 자체를 독립 경계로 사용한다."""
     result = build_advanced_result(

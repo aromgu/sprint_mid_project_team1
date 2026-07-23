@@ -48,6 +48,7 @@ from src.preprocessing.table_formats import (
 ADVANCED_SCHEMA_VERSION = "rfp_advanced_preprocessing_v1"
 TABLE_FORMAT_VERSION = "html_gfm_dual_v1"
 INDEXABLE_POLICIES = frozenset({"index", "flatten"})
+PDF_TABLE_TEXT_FALLBACK_REASON = "incomplete_pdf_table_bbox_text"
 
 
 @dataclass(frozen=True, slots=True)
@@ -372,11 +373,34 @@ def _pdf_base_and_formats(
 def _content_type(block: dict[str, Any]) -> str:
     """원본 블록 유형을 Advanced의 text/table/image 세 유형으로 통일한다."""
     block_type = str(block.get("block_type") or "").casefold()
-    if block_type == "table":
+    if (
+        block_type == "table"
+        or block.get("index_reason") == PDF_TABLE_TEXT_FALLBACK_REASON
+    ):
         return "table"
     if block_type == "picture":
         return "image"
     return "text"
+
+
+def _pdf_fallback_table_formats(block: dict[str, Any]) -> dict[str, str]:
+    """불완전 PDF 표의 bbox 원문을 안전한 1열 HTML·Markdown 표로 만든다.
+
+    셀 좌표를 복원할 수 없는 상황에서 행 관계를 추측하지 않고, 읽기 순서로
+    보존한 각 줄을 1열 표의 한 행으로 저장한다. 이 결과는 표 Markdown만
+    벡터화되며 KSS·Kiwi의 일반 문단 처리에는 들어가지 않는다.
+    """
+    table_id = str(block.get("table_id") or "")
+    if not table_id:
+        raise ValueError("PDF 표 fallback 블록에 table_id가 없습니다")
+    lines = [
+        compact_text(line)
+        for line in str(block.get("retrieval_text") or "").splitlines()
+        if compact_text(line)
+    ]
+    if not lines:
+        raise ValueError("PDF 표 fallback 블록의 복구 텍스트가 비어 있습니다")
+    return build_pdf_table_formats([[line] for line in lines], table_id)
 
 
 def _text_boundary(
@@ -442,7 +466,10 @@ def _build_advanced_block(
         table_id = str(block.get("table_id") or "")
         if table_id not in table_formats:
             raise ValueError(f"표 이중 표현이 없습니다: {table_id}")
-        formats = table_formats[table_id]
+        if block.get("index_reason") == PDF_TABLE_TEXT_FALLBACK_REASON:
+            formats = _pdf_fallback_table_formats(block)
+        else:
+            formats = table_formats[table_id]
         table_html = formats["table_html"]
         table_markdown = formats["table_markdown"]
         dense_eligible = indexable and bool(compact_text(table_markdown))
@@ -575,6 +602,8 @@ def build_advanced_result(
             }
         )
 
+    manifest_quality_flags = set(manifest_document.get("quality_flags") or [])
+    base_quality_flags = set(base_result.document.get("quality_flags") or [])
     document = {
         **manifest_document,
         "schema_version": ADVANCED_SCHEMA_VERSION,
@@ -584,6 +613,19 @@ def build_advanced_result(
         "page_count": base_result.document.get("page_count"),
         "section_count": base_result.document.get("section_count"),
         "paragraph_count": base_result.document.get("paragraph_count"),
+        "pdf_table_error_count": base_result.document.get("pdf_table_error_count", 0),
+        "pdf_word_extraction_error_count": base_result.document.get(
+            "pdf_word_extraction_error_count", 0
+        ),
+        "pdf_fallback_text_error_count": base_result.document.get(
+            "pdf_fallback_text_error_count", 0
+        ),
+        "pdf_table_text_fallback_count": base_result.document.get(
+            "pdf_table_text_fallback_count", 0
+        ),
+        "pdf_table_text_fallback_page_count": base_result.document.get(
+            "pdf_table_text_fallback_page_count", 0
+        ),
         "block_count": len(blocks),
         "text_block_count": sum(block["content_type"] == "text" for block in blocks),
         "table_block_count": sum(block["content_type"] == "table" for block in blocks),
@@ -605,6 +647,7 @@ def build_advanced_result(
         "kss_status": "not_applied_pre_chunking_contract_only",
         "kiwi_status": "not_applied_pre_chunking_contract_only",
         "image_storage": "image_uri_only_no_payload",
+        "quality_flags": sorted(manifest_quality_flags | base_quality_flags),
     }
 
     result = AdvancedPreprocessingResult(
@@ -629,6 +672,19 @@ def validate_advanced_result(result: AdvancedPreprocessingResult) -> None:
         range(1, len(result.blocks) + 1)
     ):
         raise ValueError("Advanced block_order가 1부터 연속되지 않습니다")
+
+    fallback_blocks = [
+        block
+        for block in result.blocks
+        if block.get("index_reason") == PDF_TABLE_TEXT_FALLBACK_REASON
+    ]
+    if document.get("pdf_table_text_fallback_count", 0) != len(fallback_blocks):
+        raise ValueError("PDF 표 fallback 문서 통계와 복구 블록 수가 다릅니다")
+    fallback_pages = {
+        block.get("page") for block in fallback_blocks if block.get("page") is not None
+    }
+    if document.get("pdf_table_text_fallback_page_count", 0) != len(fallback_pages):
+        raise ValueError("PDF 표 fallback 페이지 통계와 복구 블록 위치가 다릅니다")
 
     for block in result.blocks:
         if block.get("source_id") != source_id:
