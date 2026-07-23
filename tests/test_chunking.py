@@ -313,9 +313,29 @@ class MarkdownTableTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "HTML"):
             chunk_document(make_document(), [table], CODEC, CONFIG)
 
+    def test_merged_table_uses_compact_retrieval_markdown(self) -> None:
+        """병합 참조 반복은 표시용으로만 두고 검색에는 중복 없는 평문을 쓴다."""
+        markdown = (
+            "| [병합 1행×3열] 요구사항 | [병합 1행×3열 계속: 1행 1열 참조] "
+            "| [병합 1행×3열 계속: 1행 1열 참조] |\n"
+            "| --- | --- | --- |\n"
+            "| 내용 | 값 | 설명 |"
+        )
+        table = self.table_block(markdown)
+
+        chunks = chunk_document(make_document(), [table], CODEC, CONFIG)
+
+        self.assertEqual(len(chunks), 1)
+        self.assertTrue(chunks[0]["raw_text"].startswith("| 내용 |\n| --- |"))
+        self.assertNotIn("[병합", chunks[0]["raw_text"])
+        self.assertIn(
+            "merged_table_flattened_to_gfm",
+            chunks[0]["quality_flags"],
+        )
+
     def test_oversized_single_header_falls_back_to_markdown_cells(self) -> None:
-        """긴 병합 헤더도 버리지 않고 유효한 한 셀 Markdown 표로 나눈다."""
-        table = self.table_block(f"| [병합 1행×1열] {'가' * 1_100} |\n| --- |")
+        """긴 단일 헤더도 버리지 않고 유효한 한 셀 Markdown 표로 나눈다."""
+        table = self.table_block(f"| 긴 헤더 {'가' * 1_100} |\n| --- |")
 
         chunks = chunk_document(make_document(), [table], CODEC, CONFIG)
 
@@ -359,6 +379,36 @@ class MarkdownTableTests(unittest.TestCase):
             sum(row["raw_text"].count("가") for row in chunks), fill_length
         )
         self.assertIn("데이터", "\n".join(row["raw_text"] for row in chunks))
+
+    def test_low_row_budget_does_not_create_thousands_of_fragments(self) -> None:
+        """긴 병합 헤더 반복보다 한 셀 fallback을 택해 청크 폭증을 막는다."""
+        document = make_document()
+        probe_table = self.table_block("|  |\n| --- |\n| 데이터 |")
+        prefix = build_context_prefix(document, probe_table, "table")
+        base_header = "|  |\n| --- |"
+        minimum_useful_row_budget = max(8, CONFIG.max_tokens // 5)
+        fill_length = (
+            CONFIG.max_tokens
+            - minimum_useful_row_budget
+            - len(CODEC.encode(make_retrieval_text(prefix, base_header)))
+        )
+        row_length = 1_200
+        markdown = f"| {'가' * fill_length} |\n| --- |\n| {'나' * row_length} |"
+        table = self.table_block(markdown)
+
+        chunks = chunk_document(document, [table], CODEC, CONFIG)
+
+        self.assertLess(len(chunks), 20)
+        self.assertTrue(all(row["token_count"] <= 512 for row in chunks))
+        self.assertTrue(
+            all(
+                "table_header_budget_exhausted_fallback" in row["quality_flags"]
+                for row in chunks
+            )
+        )
+        combined = "\n".join(row["raw_text"] for row in chunks)
+        self.assertEqual(combined.count("가"), fill_length)
+        self.assertEqual(combined.count("나"), row_length)
 
 
 class CorpusContractTests(unittest.TestCase):

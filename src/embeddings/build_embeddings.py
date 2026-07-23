@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 
-DEFAULT_INPUT_PATH = Path("/home/data/chunks/chunks_v1.jsonl.gz")
+DEFAULT_INPUT_PATH = Path("/home/data/advanced/chunks/chunks_naive_rcts_v3.jsonl.gz")
 DEFAULT_PERSIST_DIRECTORY = Path("/home/data/chroma")
 DEFAULT_REPORT_PATH = Path("/home/data/reports/ai11_policy_indexing_report.json")
 DEFAULT_COLLECTION_NAME = "ai11_policy"
@@ -56,9 +56,22 @@ RCTS_V2_INPUT_CONTRACT = InputContract(
     schema_version="rfp_naive_chunk_v1",
     strategy_id="naive_langchain_recursive_cl100k_base_512_102_v2",
 )
+RCTS_V3_INPUT_CONTRACT = InputContract(
+    name="naive_rcts_v3",
+    input_sha256=("8d5107140ff20c5f78fa3b3a88c06a2149a1a31397a22e8fb1ca6cd32f3f7c09"),
+    chunk_count=31_627,
+    document_count=98,
+    total_tokens=10_414_025,
+    schema_version="rfp_naive_chunk_v1",
+    strategy_id="naive_langchain_recursive_cl100k_base_512_102_v3",
+)
 INPUT_CONTRACTS_BY_SHA256 = {
     contract.input_sha256: contract
-    for contract in (LEGACY_INPUT_CONTRACT, RCTS_V2_INPUT_CONTRACT)
+    for contract in (
+        LEGACY_INPUT_CONTRACT,
+        RCTS_V2_INPUT_CONTRACT,
+        RCTS_V3_INPUT_CONTRACT,
+    )
 }
 
 EXPECTED_EMBEDDING_DIMENSION = 1_536

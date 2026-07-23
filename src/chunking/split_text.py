@@ -34,7 +34,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from src.preprocessing.clean_text import PreprocessingResult
 
 SCHEMA_VERSION = "rfp_naive_chunk_v1"
-STRATEGY_ID = "naive_langchain_recursive_cl100k_base_512_102_v2"
+STRATEGY_ID = "naive_langchain_recursive_cl100k_base_512_102_v3"
 DEFAULT_MODEL = "text-embedding-3-small"
 DEFAULT_ENCODING = "cl100k_base"
 EXPECTED_TIKTOKEN_VERSION = "0.13.0"
@@ -51,6 +51,7 @@ HTML_TABLE_TAG = re.compile(
     r"</?(?:table|caption|tr|th|td|img|p|li|br)\b",
     re.IGNORECASE,
 )
+MERGED_CELL_MARKER = re.compile(r"\[병합\s")
 MARKDOWN_SEPARATOR_CELL = re.compile(r"^:?-{3,}:?$")
 
 
@@ -248,14 +249,34 @@ def block_chunk_text(block: Mapping[str, Any]) -> str:
     """블록 유형에 맞는 청킹 원문을 고른다.
 
     표는 최신 팀 결정대로 Markdown 표시 내용을 사용한다. 일반 본문은 검색용
-    평문을 사용하고, 이미지 placeholder는 어느 유형에서도 제거한다.
+    평문을 사용하고, 이미지 placeholder는 어느 유형에서도 제거한다. 병합표의
+    표시용 Markdown은 참조 셀 문구가 반복되므로 검색용 평문을 한 셀 GFM으로
+    바꿔 사용한다.
     """
     if block.get("block_type") == "table":
-        display = clean_chunk_text(block.get("display_content"))
-        if HTML_TABLE_TAG.search(display):
-            raise ValueError("Naive RAG 표에 HTML 태그가 포함되어 있습니다")
-        return display
+        return table_markdown_for_chunking(block)[0]
     return clean_chunk_text(block.get("retrieval_text"))
+
+
+def table_markdown_for_chunking(
+    block: Mapping[str, Any],
+) -> tuple[str, tuple[str, ...]]:
+    """표시용 GFM을 그대로 쓸지 중복 없는 검색 평문으로 평탄화할지 결정한다."""
+    display = clean_chunk_text(block.get("display_content"))
+    if HTML_TABLE_TAG.search(display):
+        raise ValueError("Naive RAG 표에 HTML 태그가 포함되어 있습니다")
+    if not MERGED_CELL_MARKER.search(display):
+        return display, ()
+
+    retrieval_text = clean_chunk_text(block.get("retrieval_text"))
+    if not retrieval_text.strip():
+        raise ValueError(
+            f"병합표의 retrieval_text가 비었습니다: {block.get('block_id')}"
+        )
+    return (
+        fallback_markdown_table(retrieval_text),
+        ("merged_table_flattened_to_gfm",),
+    )
 
 
 def is_indexable(block: Mapping[str, Any]) -> bool:
@@ -897,13 +918,22 @@ def table_header_exhausts_row_budget(
     codec: TokenCodec,
     config: ChunkConfig,
 ) -> bool:
-    """헤더 뒤에 행의 첫 안전 문자조차 들어갈 수 없는지 확인한다.
+    """헤더 뒤에 행을 실용적으로 나눌 토큰 예산이 남는지 확인한다.
 
     일부 복합 표는 거의 모든 내용을 첫 행(헤더)에 담고 마지막에 짧은
     데이터 행 하나만 둔다. 헤더 자체가 512토큰 이하여도 남은 예산이 0에
-    가까우면 행 내부 분할을 시작할 수 없으므로, 이때는 표 전체를 한 셀
-    Markdown으로 평탄화해 RCTS로 나눈다.
+    가까우면 같은 긴 헤더를 수백 번 반복하며 행을 몇 글자씩만 나누게 된다.
+    분할이 필요한 행에 전체 예산의 20% 이하만 남으면 표 전체를 한 셀
+    Markdown으로 평탄화해 RCTS로 나눈다. 작은 사용자 설정에서도 최소
+    8토큰은 본문에 쓸 수 있어야 한다.
     """
+    header_token_count = len(codec.encode(make_retrieval_text(prefix, header_text)))
+    remaining_row_budget = config.max_tokens - header_token_count
+    minimum_useful_row_budget = min(
+        config.max_tokens,
+        max(8, config.max_tokens // 5),
+    )
+
     for row_number, row_text in enumerate(segment.data_rows, start=1):
         complete_row = table_raw_text(
             header_text,
@@ -914,6 +944,9 @@ def table_header_exhausts_row_budget(
             <= config.max_tokens
         ):
             continue
+
+        if remaining_row_budget <= minimum_useful_row_budget:
+            return True
 
         token_map = TokenTextMap(row_text, codec)
         first_safe_end = next(
@@ -1315,22 +1348,30 @@ def chunk_table_block(
     config: ChunkConfig,
 ) -> list[dict[str, Any]]:
     """표를 본문과 분리하고 Markdown 표별·행별로 나눈다."""
-    markdown = block_chunk_text(block)
+    markdown, adaptation_flags = table_markdown_for_chunking(block)
+    selected_block = dict(block)
+    selected_block["quality_flags"] = unique_in_order(
+        [
+            *(block.get("quality_flags") or []),
+            *adaptation_flags,
+        ]
+    )
     segments = parse_markdown_table_segments(markdown)
     if not segments:
         segments = parse_markdown_table_segments(
-            fallback_markdown_table(str(block.get("retrieval_text") or ""))
+            fallback_markdown_table(str(selected_block.get("retrieval_text") or ""))
         )
     if not segments:
         raise ValueError(
-            f"검색 대상 표를 Markdown으로 만들 수 없습니다: {block['block_id']}"
+            "검색 대상 표를 Markdown으로 만들 수 없습니다: "
+            f"{selected_block['block_id']}"
         )
 
     chunks: list[dict[str, Any]] = []
     for segment in segments:
         segment_chunks = chunk_table_segment(
             document=document,
-            block=block,
+            block=selected_block,
             segment=segment,
             segment_count=len(segments),
             codec=codec,
