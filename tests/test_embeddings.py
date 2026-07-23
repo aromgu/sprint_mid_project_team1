@@ -144,6 +144,20 @@ def test_rcts_v2_contract_matches_generated_corpus() -> None:
     assert contract.strategy_id == "naive_langchain_recursive_cl100k_base_512_102_v2"
 
 
+def test_rcts_v3_contract_matches_generated_corpus() -> None:
+    """병합표 보정과 PDF 원문 복구를 반영한 RCTS v3 계약을 고정한다."""
+
+    contract = embedding_module.RCTS_V3_INPUT_CONTRACT
+
+    assert contract.input_sha256 == (
+        "8d5107140ff20c5f78fa3b3a88c06a2149a1a31397a22e8fb1ca6cd32f3f7c09"
+    )
+    assert contract.chunk_count == 31_627
+    assert contract.document_count == 98
+    assert contract.total_tokens == 10_414_025
+    assert contract.strategy_id == "naive_langchain_recursive_cl100k_base_512_102_v3"
+
+
 def test_collection_contract_rejects_different_input_sha() -> None:
     """같은 컬렉션 이름에 다른 청크 벡터를 섞지 못하게 한다."""
 
