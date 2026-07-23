@@ -231,6 +231,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "kss_eligible_blocks": 0,
         "bm25_eligible_blocks": 0,
         "table_blocks_with_dual_formats": 0,
+        "pdf_table_text_fallback_count": 0,
+        "pdf_table_text_fallback_page_count": 0,
+        "pdf_table_geometry_recovered_count": 0,
+        "pdf_table_geometry_recovered_page_count": 0,
+        "pdf_table_one_column_fallback_count": 0,
+        "pdf_table_fallback_markdown_blocks": 0,
     }
 
     handles: dict[str, TextIO] = {}
@@ -264,6 +270,30 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 block["content_type"] == "table"
                 and bool(block["table_html"])
                 and bool(block["table_markdown"])
+                for block in result.blocks
+            )
+            counts["pdf_table_text_fallback_count"] += int(
+                result.document.get("pdf_table_text_fallback_count", 0)
+            )
+            counts["pdf_table_text_fallback_page_count"] += int(
+                result.document.get("pdf_table_text_fallback_page_count", 0)
+            )
+            counts["pdf_table_geometry_recovered_count"] += int(
+                result.document.get("pdf_table_geometry_recovered_count", 0)
+            )
+            counts["pdf_table_geometry_recovered_page_count"] += int(
+                result.document.get("pdf_table_geometry_recovered_page_count", 0)
+            )
+            counts["pdf_table_one_column_fallback_count"] += int(
+                result.document.get("pdf_table_one_column_fallback_count", 0)
+            )
+            counts["pdf_table_fallback_markdown_blocks"] += sum(
+                block["content_type"] == "table"
+                and block.get("index_reason") == "incomplete_pdf_table_bbox_text"
+                and block.get("vectorize_field") == "table_markdown"
+                and bool(block.get("dense_eligible"))
+                and not bool(block.get("kss_eligible"))
+                and not bool(block.get("bm25_eligible"))
                 for block in result.blocks
             )
             print(
