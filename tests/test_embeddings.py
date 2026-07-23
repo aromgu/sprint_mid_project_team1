@@ -75,6 +75,36 @@ def test_normalize_metadata_keeps_only_safe_scalars() -> None:
     assert "quality_flags" not in metadata
 
 
+def test_normalize_metadata_keeps_enriched_filters_and_aliases() -> None:
+    """사업 필터와 중복 파일 별칭을 Chroma 호환 scalar로 바꾼다."""
+
+    row = make_row()
+    row.update(
+        {
+            "project_name": "통합정보시스템 고도화",
+            "project_summary": "- 사업의 주요 범위와 목표",
+            "issuer": "발주기관",
+            "project_amount_status": "usable",
+            "project_summary_review_status": "ai_source_review_pass",
+            "metadata_schema_version": "business_metadata_v1",
+            "filename_aliases": ["과거 파일명.hwp"],
+        }
+    )
+
+    metadata = embedding_module.normalize_metadata(
+        row,
+        embedding_model="text-embedding-3-small",
+        create_date="2026-07-23T00:00:00+00:00",
+    )
+
+    assert metadata["project_name"] == "통합정보시스템 고도화"
+    assert metadata["project_summary"] == "- 사업의 주요 범위와 목표"
+    assert metadata["issuer"] == "발주기관"
+    assert metadata["metadata_schema_version"] == "business_metadata_v1"
+    assert metadata["filename_aliases"] == '["과거 파일명.hwp"]'
+    assert metadata["filename_alias_count"] == 1
+
+
 def test_audit_input_accepts_valid_smoke_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -158,6 +188,50 @@ def test_rcts_v3_contract_matches_generated_corpus() -> None:
     assert contract.strategy_id == "naive_langchain_recursive_cl100k_base_512_102_v3"
 
 
+def test_rcts_v3_metadata_v1_contract_matches_enriched_corpus() -> None:
+    """사업 메타데이터 보강이 끝난 최종 GCP 임베딩 입력을 고정한다."""
+
+    contract = embedding_module.RCTS_V3_METADATA_V1_INPUT_CONTRACT
+
+    assert contract.input_sha256 == (
+        "4c77826f4705f8df70dfa15d180312ec133d624ab25ace85cfd32f0c9f8f9194"
+    )
+    assert contract.chunk_count == 31_627
+    assert contract.document_count == 98
+    assert contract.total_tokens == 10_414_025
+    assert contract.strategy_id == "naive_langchain_recursive_cl100k_base_512_102_v3"
+    assert contract.metadata_schema_version == "business_metadata_v1"
+
+
+def test_audit_rejects_wrong_metadata_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """보강 계약 파일에 다른 metadata schema가 섞이면 API 호출 전에 막는다."""
+
+    input_path = tmp_path / "chunks.jsonl.gz"
+    rows = [make_row()]
+    rows[0]["metadata_schema_version"] = "wrong_metadata_v1"
+    write_gzip_jsonl(input_path, rows)
+    contract = embedding_module.InputContract(
+        name="enriched_test_contract",
+        input_sha256=embedding_module.sha256_file(input_path),
+        chunk_count=1,
+        document_count=1,
+        total_tokens=10,
+        schema_version="rfp_naive_chunk_v1",
+        strategy_id="naive_recursive_tiktoken_cl100k_base_512_102_v1",
+        metadata_schema_version="business_metadata_v1",
+    )
+    monkeypatch.setattr(
+        embedding_module,
+        "INPUT_CONTRACTS_BY_SHA256",
+        {contract.input_sha256: contract},
+    )
+
+    with pytest.raises(ValueError, match="metadata_schema_version"):
+        embedding_module.audit_input(input_path)
+
+
 def test_collection_contract_rejects_different_input_sha() -> None:
     """같은 컬렉션 이름에 다른 청크 벡터를 섞지 못하게 한다."""
 
@@ -170,11 +244,13 @@ def test_collection_contract_rejects_different_input_sha() -> None:
         chunk_ids=frozenset({"source-1:C000001"}),
         schema_versions=("rfp_naive_chunk_v1",),
         strategy_ids=("naive_strategy_v2",),
+        metadata_schema_versions=("business_metadata_v1",),
     )
     metadata = {
         "embedding_model": "text-embedding-3-small",
         "schema_version": "rfp_naive_chunk_v1",
         "strategy_id": "naive_strategy_v2",
+        "metadata_schema_version": "business_metadata_v1",
         "input_sha256": "old-sha",
     }
 

@@ -17,10 +17,14 @@ from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 
-DEFAULT_INPUT_PATH = Path("/home/data/advanced/chunks/chunks_naive_rcts_v3.jsonl.gz")
-DEFAULT_PERSIST_DIRECTORY = Path("/home/data/chroma")
-DEFAULT_REPORT_PATH = Path("/home/data/reports/ai11_policy_indexing_report.json")
-DEFAULT_COLLECTION_NAME = "ai11_policy"
+DEFAULT_INPUT_PATH = Path(
+    "/home/data/advanced/chunks/chunks_naive_rcts_v3_metadata_v1.jsonl.gz"
+)
+DEFAULT_PERSIST_DIRECTORY = Path("/home/data/chroma_naive_v3_metadata_v1")
+DEFAULT_REPORT_PATH = Path(
+    "/home/data/reports/ai11_policy_naive_v3_metadata_v1_indexing_report.json"
+)
+DEFAULT_COLLECTION_NAME = "ai11_policy_naive_v3_metadata_v1"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_BATCH_SIZE = 100
 
@@ -36,6 +40,7 @@ class InputContract:
     total_tokens: int
     schema_version: str
     strategy_id: str
+    metadata_schema_version: str | None = None
 
 
 LEGACY_INPUT_CONTRACT = InputContract(
@@ -65,12 +70,23 @@ RCTS_V3_INPUT_CONTRACT = InputContract(
     schema_version="rfp_naive_chunk_v1",
     strategy_id="naive_langchain_recursive_cl100k_base_512_102_v3",
 )
+RCTS_V3_METADATA_V1_INPUT_CONTRACT = InputContract(
+    name="naive_rcts_v3_business_metadata_v1",
+    input_sha256=("4c77826f4705f8df70dfa15d180312ec133d624ab25ace85cfd32f0c9f8f9194"),
+    chunk_count=31_627,
+    document_count=98,
+    total_tokens=10_414_025,
+    schema_version="rfp_naive_chunk_v1",
+    strategy_id="naive_langchain_recursive_cl100k_base_512_102_v3",
+    metadata_schema_version="business_metadata_v1",
+)
 INPUT_CONTRACTS_BY_SHA256 = {
     contract.input_sha256: contract
     for contract in (
         LEGACY_INPUT_CONTRACT,
         RCTS_V2_INPUT_CONTRACT,
         RCTS_V3_INPUT_CONTRACT,
+        RCTS_V3_METADATA_V1_INPUT_CONTRACT,
     )
 }
 
@@ -84,7 +100,9 @@ METADATA_FIELDS = (
     "document_id",
     "source_filename",
     "file_type",
+    "source_row",
     "project_name",
+    "project_summary",
     "issuer",
     "notice_number",
     "notice_round",
@@ -92,6 +110,12 @@ METADATA_FIELDS = (
     "bid_start_at",
     "bid_end_at",
     "project_amount_won",
+    "project_amount_status",
+    "bid_period_status",
+    "validation_status",
+    "project_summary_review_status",
+    "business_metadata_match_rule",
+    "metadata_schema_version",
     "content_type",
     "page_start",
     "page_end",
@@ -129,6 +153,7 @@ class InputAudit:
     chunk_ids: frozenset[str]
     schema_versions: tuple[str, ...]
     strategy_ids: tuple[str, ...]
+    metadata_schema_versions: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -142,6 +167,7 @@ class IndexingReport:
     input_contract_name: str
     schema_version: str
     strategy_id: str
+    metadata_schema_version: str | None
     source_document_count: int
     input_chunk_count: int
     embedding_model: str
@@ -199,6 +225,20 @@ def normalize_metadata(
     source_filename = row.get("source_filename")
     if isinstance(source_filename, str) and source_filename:
         metadata["file_nm"] = source_filename
+
+    # Chroma metadata는 문자열 목록을 직접 받을 수 없으므로 JSON 문자열로 보존한다.
+    # 검색 계층은 이 값을 파싱해 중복 파일명을 대표 문서로 연결할 수 있다.
+    filename_aliases = row.get("filename_aliases")
+    if isinstance(filename_aliases, list) and all(
+        isinstance(value, str) for value in filename_aliases
+    ):
+        metadata["filename_aliases"] = json.dumps(
+            filename_aliases,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        metadata["filename_alias_count"] = len(filename_aliases)
+
     metadata["embedding_model"] = embedding_model
     metadata["create_date"] = create_date
     return metadata
@@ -245,6 +285,7 @@ def audit_input(path: Path, *, max_records: int | None = None) -> InputAudit:
     source_ids: set[str] = set()
     schema_versions: set[str] = set()
     strategy_ids: set[str] = set()
+    metadata_schema_versions: set[str] = set()
     total_tokens = 0
     chunk_count = 0
 
@@ -270,6 +311,9 @@ def audit_input(path: Path, *, max_records: int | None = None) -> InputAudit:
         source_ids.add(source_id)
         schema_versions.add(str(row.get("schema_version")))
         strategy_ids.add(str(row.get("strategy_id")))
+        metadata_schema_version = row.get("metadata_schema_version")
+        if metadata_schema_version not in (None, ""):
+            metadata_schema_versions.add(str(metadata_schema_version))
         total_tokens += token_count
         chunk_count += 1
 
@@ -278,6 +322,14 @@ def audit_input(path: Path, *, max_records: int | None = None) -> InputAudit:
         raise ValueError(f"schema_version 오류: {sorted(schema_versions)}")
     if strategy_ids != {contract.strategy_id}:
         raise ValueError(f"strategy_id 오류: {sorted(strategy_ids)}")
+    if contract.metadata_schema_version is not None and metadata_schema_versions != {
+        contract.metadata_schema_version
+    }:
+        raise ValueError(
+            "metadata_schema_version 오류: "
+            f"{sorted(metadata_schema_versions)} != "
+            f"{contract.metadata_schema_version}"
+        )
 
     # 소량 smoke test가 아닌 전체 실행에서만 전체 건수 조건을 강제한다.
     if max_records is None:
@@ -301,6 +353,7 @@ def audit_input(path: Path, *, max_records: int | None = None) -> InputAudit:
         chunk_ids=frozenset(chunk_ids),
         schema_versions=tuple(sorted(schema_versions)),
         strategy_ids=tuple(sorted(strategy_ids)),
+        metadata_schema_versions=tuple(sorted(metadata_schema_versions)),
     )
 
 
@@ -344,22 +397,27 @@ def create_vectorstore(
     input_sha256: str,
     schema_version: str,
     strategy_id: str,
+    metadata_schema_version: str | None,
     collection_name: str,
     persist_directory: Path,
 ) -> Chroma:
     """팀 합의 경로에 cosine 기반 영속 Chroma Collection을 연다."""
 
     persist_directory.mkdir(parents=True, exist_ok=True)
+    collection_metadata = {
+        "embedding_model": embedding_model,
+        "schema_version": schema_version,
+        "strategy_id": strategy_id,
+        "input_sha256": input_sha256,
+    }
+    if metadata_schema_version is not None:
+        collection_metadata["metadata_schema_version"] = metadata_schema_version
+
     return Chroma(
         collection_name=collection_name,
         embedding_function=embeddings,
         persist_directory=str(persist_directory),
-        collection_metadata={
-            "embedding_model": embedding_model,
-            "schema_version": schema_version,
-            "strategy_id": strategy_id,
-            "input_sha256": input_sha256,
-        },
+        collection_metadata=collection_metadata,
         collection_configuration={"hnsw": {"space": "cosine"}},
     )
 
@@ -378,6 +436,8 @@ def validate_collection_contract(
         "strategy_id": audit.strategy_ids[0],
         "input_sha256": audit.input_sha256,
     }
+    if audit.metadata_schema_versions:
+        expected["metadata_schema_version"] = audit.metadata_schema_versions[0]
     mismatches = {
         key: {"saved": metadata.get(key), "requested": value}
         for key, value in expected.items()
@@ -433,6 +493,11 @@ def build_embeddings(
         input_sha256=audit.input_sha256,
         schema_version=audit.schema_versions[0],
         strategy_id=audit.strategy_ids[0],
+        metadata_schema_version=(
+            audit.metadata_schema_versions[0]
+            if audit.metadata_schema_versions
+            else None
+        ),
         collection_name=collection_name,
         persist_directory=persist_directory,
     )
@@ -520,6 +585,11 @@ def build_embeddings(
         input_contract_name=audit.contract_name,
         schema_version=audit.schema_versions[0],
         strategy_id=audit.strategy_ids[0],
+        metadata_schema_version=(
+            audit.metadata_schema_versions[0]
+            if audit.metadata_schema_versions
+            else None
+        ),
         source_document_count=audit.document_count,
         input_chunk_count=audit.chunk_count,
         embedding_model=embedding_model,
