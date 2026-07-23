@@ -1120,12 +1120,9 @@ def pdf_table_text_coverage(
     """
     inside_text: list[str] = []
     for word in words:
-        center_x = (
-            float(word.get("x0", 0) or 0) + float(word.get("x1", 0) or 0)
-        ) / 2
+        center_x = (float(word.get("x0", 0) or 0) + float(word.get("x1", 0) or 0)) / 2
         center_y = (
-            float(word.get("top", 0) or 0)
-            + float(word.get("bottom", 0) or 0)
+            float(word.get("top", 0) or 0) + float(word.get("bottom", 0) or 0)
         ) / 2
         if point_in_bbox(center_x, center_y, bbox):
             inside_text.append(str(word.get("text") or ""))
@@ -1310,9 +1307,7 @@ def process_pdf_document(
             # 불완전한 표의 단어는 표별 fallback 블록으로 묶어 긴 셀 내용과
             # 다단 페이지의 열 경계를 함께 보존한다.
             outside_words: list[dict[str, Any]] = []
-            fallback_words_by_table: dict[int, list[dict[str, Any]]] = defaultdict(
-                list
-            )
+            fallback_words_by_table: dict[int, list[dict[str, Any]]] = defaultdict(list)
             for word in words:
                 center_x = (
                     float(word.get("x0", 0) or 0) + float(word.get("x1", 0) or 0)
@@ -1332,9 +1327,7 @@ def process_pdf_document(
                     if not point_in_bbox(center_x, center_y, bbox):
                         continue
                     if use_text_fallback:
-                        area = max(bbox[2] - bbox[0], 0) * max(
-                            bbox[3] - bbox[1], 0
-                        )
+                        area = max(bbox[2] - bbox[0], 0) * max(bbox[3] - bbox[1], 0)
                         fallback_matches.append((area, table_index))
                     elif pdf_matrix_text(matrix):
                         inside_trusted_table = True
@@ -1356,9 +1349,7 @@ def process_pdf_document(
                 _,
                 use_text_fallback,
             ) in enumerate(prepared_tables):
-                table_flags = (
-                    ["pdf_table_text_fallback"] if use_text_fallback else []
-                )
+                table_flags = ["pdf_table_text_fallback"] if use_text_fallback else []
                 table_top = float(detected_table.bbox[1])
                 events.append(
                     (
@@ -1884,9 +1875,7 @@ def preprocess_document(
             "pdf_word_extraction_error_count", 0
         ),
         "pdf_fallback_text_error_count": stats.get("pdf_fallback_text_error_count", 0),
-        "pdf_table_text_fallback_count": stats.get(
-            "pdf_table_text_fallback_count", 0
-        ),
+        "pdf_table_text_fallback_count": stats.get("pdf_table_text_fallback_count", 0),
         "pdf_table_text_fallback_page_count": stats.get(
             "pdf_table_text_fallback_page_count", 0
         ),
