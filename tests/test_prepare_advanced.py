@@ -223,6 +223,9 @@ def test_pdf_incomplete_table_fallback_stays_table_markdown() -> None:
             **base.document,
             "pdf_table_text_fallback_count": 1,
             "pdf_table_text_fallback_page_count": 1,
+            "pdf_table_geometry_recovered_count": 0,
+            "pdf_table_geometry_recovered_page_count": 0,
+            "pdf_table_one_column_fallback_count": 1,
             "quality_flags": ["pdf_table_text_fallback"],
         },
         blocks=(*base.blocks, fallback_block),
@@ -253,6 +256,65 @@ def test_pdf_incomplete_table_fallback_stays_table_markdown() -> None:
     assert result.document["pdf_table_text_fallback_page_count"] == 1
     assert "pdf_table_text_fallback" in result.document["quality_flags"]
     assert result.tables[0]["format_storage_block_id"] == recovered["block_id"]
+
+
+def test_pdf_fallback_uses_geometry_recovered_columns() -> None:
+    """좌표로 복원한 행렬은 1열로 합치지 않고 원래 2열 Markdown으로 저장한다."""
+    base = _base_result(file_type="pdf")
+    table_id = str(base.blocks[1]["table_id"])
+    fallback_block = {
+        **base.blocks[0],
+        "block_id": f"{SOURCE_ID}:B000004",
+        "block_order": 4,
+        "block_type": "text",
+        "display_content": "구 분 설 명\n입학 정보 모집시기, 개인식별코드",
+        "retrieval_text": "구 분 설 명\n입학 정보 모집시기, 개인식별코드",
+        "index_reason": "incomplete_pdf_table_bbox_text",
+        "table_id": table_id,
+        "bbox": (0.0, 20.0, 100.0, 80.0),
+        "table_fallback_matrix": [
+            ["구 분", "설 명"],
+            ["입학 정보", "모집시기, 개인식별코드"],
+        ],
+        "quality_flags": [
+            "pdf_table_text_fallback",
+            "pdf_table_geometry_recovered",
+        ],
+    }
+    base_with_fallback = PreprocessingResult(
+        document={
+            **base.document,
+            "pdf_table_text_fallback_count": 1,
+            "pdf_table_text_fallback_page_count": 1,
+            "pdf_table_geometry_recovered_count": 1,
+            "pdf_table_geometry_recovered_page_count": 1,
+            "pdf_table_one_column_fallback_count": 0,
+            "quality_flags": ["pdf_table_text_fallback"],
+        },
+        blocks=(*base.blocks, fallback_block),
+        tables=base.tables,
+        images=base.images,
+    )
+
+    result = build_advanced_result(
+        _manifest("pdf"),
+        base_with_fallback,
+        _formats(),
+    )
+    recovered = next(
+        block
+        for block in result.blocks
+        if block["index_reason"] == "incomplete_pdf_table_bbox_text"
+    )
+
+    assert recovered["table_markdown"] == (
+        "| 구 분 | 설 명 |\n| --- | --- |\n| 입학 정보 | 모집시기, 개인식별코드 |"
+    )
+    assert "<th>구 분</th><th>설 명</th>" in recovered["table_html"]
+    assert "table_fallback_matrix" not in recovered
+    assert recovered["vectorize_field"] == "table_markdown"
+    assert result.document["pdf_table_geometry_recovered_count"] == 1
+    assert result.document["pdf_table_one_column_fallback_count"] == 0
 
 
 def test_missing_hwp_para_uses_block_id_without_merging() -> None:

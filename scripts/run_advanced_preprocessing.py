@@ -233,6 +233,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "table_blocks_with_dual_formats": 0,
         "pdf_table_text_fallback_count": 0,
         "pdf_table_text_fallback_page_count": 0,
+        "pdf_table_geometry_recovered_count": 0,
+        "pdf_table_geometry_recovered_page_count": 0,
+        "pdf_table_one_column_fallback_count": 0,
         "pdf_table_fallback_markdown_blocks": 0,
     }
 
@@ -274,6 +277,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             )
             counts["pdf_table_text_fallback_page_count"] += int(
                 result.document.get("pdf_table_text_fallback_page_count", 0)
+            )
+            counts["pdf_table_geometry_recovered_count"] += int(
+                result.document.get("pdf_table_geometry_recovered_count", 0)
+            )
+            counts["pdf_table_geometry_recovered_page_count"] += int(
+                result.document.get("pdf_table_geometry_recovered_page_count", 0)
+            )
+            counts["pdf_table_one_column_fallback_count"] += int(
+                result.document.get("pdf_table_one_column_fallback_count", 0)
             )
             counts["pdf_table_fallback_markdown_blocks"] += sum(
                 block["content_type"] == "table"

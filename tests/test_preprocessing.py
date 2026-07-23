@@ -15,6 +15,7 @@ from src.preprocessing.clean_text import (
     field_parts,
     has_forbidden_image_payload,
     normalize_text,
+    pdf_table_text_coverage,
     preprocess_document,
     preprocess_documents,
     render_pdf_table,
@@ -689,6 +690,8 @@ class PreprocessingTests(unittest.TestCase):
         self.assertIn("pdf_table_text_fallback", result.document["quality_flags"])
         self.assertEqual(result.document["pdf_table_text_fallback_count"], 1)
         self.assertEqual(result.document["pdf_table_text_fallback_page_count"], 1)
+        self.assertEqual(result.document["pdf_table_geometry_recovered_count"], 0)
+        self.assertEqual(result.document["pdf_table_one_column_fallback_count"], 1)
         table_block = next(
             block for block in result.blocks if block["block_type"] == "table"
         )
@@ -710,6 +713,225 @@ class PreprocessingTests(unittest.TestCase):
             fallback_block["index_reason"],
             "incomplete_pdf_table_bbox_text",
         )
+
+    def test_pdf_incomplete_table_recovers_columns_from_verified_geometry(
+        self,
+    ) -> None:
+        """일부 셀이 빠져도 남아 있는 격자 경계로 2열 표를 복원한다."""
+
+        class FakeTable:
+            bbox = (0.0, 20.0, 100.0, 50.0)
+            rows = [
+                SimpleNamespace(
+                    cells=[
+                        (0.0, 20.0, 40.0, 30.0),
+                        (40.0, 20.0, 100.0, 30.0),
+                    ]
+                ),
+                SimpleNamespace(cells=[(0.0, 30.0, 40.0, 40.0), None]),
+                SimpleNamespace(cells=[(0.0, 40.0, 40.0, 50.0), None]),
+            ]
+
+            def extract(self) -> list[list[str | None]]:
+                return [
+                    ["구 분", "설 명"],
+                    ["입학 정보", None],
+                    ["학생 활동", None],
+                ]
+
+        def word(text: str, x0: float, top: float) -> dict[str, Any]:
+            return {
+                "text": text,
+                "x0": x0,
+                "x1": x0 + 8.0,
+                "top": top,
+                "bottom": top + 6.0,
+            }
+
+        table_words = [
+            word("구", 10.0, 22.0),
+            word("분", 20.0, 22.0),
+            word("설", 60.0, 22.0),
+            word("명", 70.0, 22.0),
+            word("입학", 10.0, 32.0),
+            word("정보", 20.0, 32.0),
+            word("모집시기,", 43.0, 32.0),
+            word("개인식별코드,", 57.0, 32.0),
+            word("입학원서", 77.0, 32.0),
+            word("학과코드", 88.0, 32.0),
+            word("학생", 10.0, 42.0),
+            word("활동", 20.0, 42.0),
+            word("교과", 43.0, 42.0),
+            word("및", 53.0, 42.0),
+            word("비교과", 63.0, 42.0),
+            word("이수현황", 78.0, 42.0),
+            word("수강내역", 88.0, 42.0),
+        ]
+
+        class FakePage:
+            height = 100.0
+            images: list[dict[str, Any]] = []
+
+            def find_tables(self) -> list[FakeTable]:
+                return [FakeTable()]
+
+            def extract_words(self, **_: Any) -> list[dict[str, Any]]:
+                return table_words
+
+            def extract_text(self) -> str:
+                return " ".join(item["text"] for item in table_words)
+
+        class FakePdf:
+            pages = [FakePage()]
+
+            def __enter__(self) -> FakePdf:
+                return self
+
+            def __exit__(self, *_: Any) -> None:
+                return None
+
+        result = preprocess_document(
+            self.source("recover-columns.pdf"),
+            pdfplumber_module=SimpleNamespace(open=lambda _: FakePdf()),
+        )
+
+        fallback_block = next(
+            block
+            for block in result.blocks
+            if block["index_reason"] == "incomplete_pdf_table_bbox_text"
+        )
+        self.assertEqual(
+            fallback_block["table_fallback_matrix"],
+            [
+                ["구 분", "설 명"],
+                ["입학 정보", "모집시기, 개인식별코드, 입학원서 학과코드"],
+                ["학생 활동", "교과 및 비교과 이수현황 수강내역"],
+            ],
+        )
+        self.assertIn(
+            "pdf_table_geometry_recovered",
+            fallback_block["quality_flags"],
+        )
+        self.assertNotIn(
+            "pdf_table_one_column_fallback",
+            fallback_block["quality_flags"],
+        )
+        self.assertEqual(result.document["pdf_table_geometry_recovered_count"], 1)
+        self.assertEqual(
+            result.document["pdf_table_geometry_recovered_page_count"],
+            1,
+        )
+        self.assertEqual(result.document["pdf_table_one_column_fallback_count"], 0)
+
+    def test_pdf_partial_table_loss_above_eighty_percent_is_recovered(
+        self,
+    ) -> None:
+        """80% 이상 추출됐어도 배점 셀이 빠진 표는 좌표로 복원한다."""
+
+        class FakeTable:
+            bbox = (0.0, 20.0, 100.0, 40.0)
+            rows = [
+                SimpleNamespace(
+                    cells=[
+                        (0.0, 20.0, 25.0, 30.0),
+                        (25.0, 20.0, 50.0, 30.0),
+                        (50.0, 20.0, 85.0, 30.0),
+                        (85.0, 20.0, 100.0, 30.0),
+                    ]
+                ),
+                SimpleNamespace(
+                    cells=[
+                        (0.0, 30.0, 25.0, 40.0),
+                        (25.0, 30.0, 50.0, 40.0),
+                        (50.0, 30.0, 85.0, 40.0),
+                        (85.0, 30.0, 100.0, 40.0),
+                    ]
+                ),
+            ]
+
+            def extract(self) -> list[list[str | None]]:
+                return [
+                    ["평가 부문", "평가 항목", "평가 내용", "배점"],
+                    [
+                        "기술 부문",
+                        "수행 방안",
+                        "사업 목적에 부합하는 구체적 수행 전략과 단계별 이행 계획",
+                        None,
+                    ],
+                ]
+
+        def word(text: str, x0: float, top: float) -> dict[str, Any]:
+            return {
+                "text": text,
+                "x0": x0,
+                "x1": x0 + 8.0,
+                "top": top,
+                "bottom": top + 6.0,
+            }
+
+        table_words = [
+            word("평가 부문", 5.0, 22.0),
+            word("평가 항목", 30.0, 22.0),
+            word("평가 내용", 55.0, 22.0),
+            word("배점", 88.0, 22.0),
+            word("기술 부문", 5.0, 32.0),
+            word("수행 방안", 30.0, 32.0),
+            word(
+                "사업 목적에 부합하는 구체적 수행 전략과 단계별 이행 계획",
+                55.0,
+                32.0,
+            ),
+            word("10점", 88.0, 32.0),
+        ]
+        extracted_matrix = FakeTable().extract()
+        original_coverage = pdf_table_text_coverage(
+            extracted_matrix,
+            table_words,
+            FakeTable.bbox,
+        )
+        self.assertIsNotNone(original_coverage)
+        assert original_coverage is not None
+        self.assertGreater(original_coverage, 0.8)
+        self.assertLess(original_coverage, 0.98)
+
+        class FakePage:
+            height = 100.0
+            images: list[dict[str, Any]] = []
+
+            def find_tables(self) -> list[FakeTable]:
+                return [FakeTable()]
+
+            def extract_words(self, **_: Any) -> list[dict[str, Any]]:
+                return table_words
+
+            def extract_text(self) -> str:
+                return " ".join(item["text"] for item in table_words)
+
+        class FakePdf:
+            pages = [FakePage()]
+
+            def __enter__(self) -> FakePdf:
+                return self
+
+            def __exit__(self, *_: Any) -> None:
+                return None
+
+        result = preprocess_document(
+            self.source("partial-score-loss.pdf"),
+            pdfplumber_module=SimpleNamespace(open=lambda _: FakePdf()),
+        )
+
+        fallback_block = next(
+            block
+            for block in result.blocks
+            if block["index_reason"] == "incomplete_pdf_table_bbox_text"
+        )
+        self.assertEqual(fallback_block["table_fallback_matrix"][1][3], "10점")
+        self.assertIn(
+            "pdf_table_geometry_recovered",
+            fallback_block["quality_flags"],
+        )
+        self.assertEqual(result.document["pdf_table_text_fallback_count"], 1)
 
     def test_pdf_page_numbers_start_at_one(self) -> None:
         """PDF 첫 페이지와 둘째 페이지는 각각 1과 2로 기록된다."""

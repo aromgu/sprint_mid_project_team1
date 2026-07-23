@@ -29,8 +29,12 @@ from src.loader.load_documents import SourceDocument, sha256_file
 SCHEMA_VERSION = "rfp_structured_preprocessing_v2"
 HWP_FILE_TYPES = frozenset({"hwp", "hwpx"})
 PDF_FILE_TYPE = "pdf"
-PDF_TABLE_TEXT_COVERAGE_THRESHOLD = 0.8
+# 병합 셀의 분류명·배점처럼 짧지만 중요한 값도 누락으로 판단한다.
+# 80% 기준에서는 표 대부분이 추출됐다는 이유로 이런 핵심 값이 빠질 수 있었다.
+PDF_TABLE_TEXT_COVERAGE_THRESHOLD = 0.98
 PDF_TABLE_TEXT_FALLBACK_MIN_CHARS = 40
+PDF_TABLE_GEOMETRY_RECOVERY_THRESHOLD = 0.98
+PDF_TABLE_BOUNDARY_TOLERANCE = 1.0
 
 # 표가 실제 업무 내용을 담는지 판단할 때 사용하는 대표적인 RFP 표현이다.
 TABLE_CONTENT_SIGNAL = re.compile(
@@ -1207,6 +1211,138 @@ def group_pdf_words_into_lines(
     return result
 
 
+def _merge_pdf_boundaries(
+    values: Iterable[float],
+    *,
+    tolerance: float = PDF_TABLE_BOUNDARY_TOLERANCE,
+) -> list[float]:
+    """pdfplumber가 조금 다르게 기록한 같은 셀 경계를 하나로 합친다."""
+    groups: list[list[float]] = []
+    for value in sorted(float(item) for item in values):
+        if not groups or abs(value - groups[-1][-1]) > tolerance:
+            groups.append([value])
+        else:
+            groups[-1].append(value)
+    return [sum(group) / len(group) for group in groups]
+
+
+def _pdf_interval_index(
+    value: float,
+    intervals: Sequence[tuple[float, float]],
+) -> int | None:
+    """경계 위의 단어가 중복 배정되지 않도록 한 구간만 선택한다."""
+    for index, (start, end) in enumerate(intervals):
+        is_last = index == len(intervals) - 1
+        if start <= value < end or (is_last and start <= value <= end):
+            return index
+    return None
+
+
+def recover_pdf_table_matrix_from_geometry(
+    detected_table: Any,
+    matrix: Sequence[Sequence[Any]],
+    words: Sequence[dict[str, Any]],
+) -> list[list[str]] | None:
+    """검출된 셀 경계를 이용해 누락된 PDF 표 셀의 텍스트를 복원한다.
+
+    ``pdfplumber``가 일부 행의 세로선을 놓치면 ``Table.extract()``는 해당
+    셀을 ``None``으로 반환할 수 있다. 하지만 헤더나 다른 행에서 같은 열
+    경계가 확인되고 모든 행의 y경계가 남아 있다면, 표 안 단어의 중심점을
+    그 검증된 격자에 다시 배정해 열 구조를 안전하게 복원할 수 있다.
+
+    경계 수가 추출 행렬과 다르거나, 기존 셀 텍스트가 바뀌거나, 원문 글자의
+    98% 미만만 복구되면 구조를 추측하지 않고 ``None``을 반환한다.
+    """
+    extracted_rows = [list(row) for row in matrix]
+    expected_row_count = len(extracted_rows)
+    expected_col_count = max((len(row) for row in extracted_rows), default=0)
+    if expected_row_count == 0 or expected_col_count < 2:
+        return None
+
+    table_rows = list(getattr(detected_table, "rows", []) or [])
+    if len(table_rows) != expected_row_count:
+        return None
+
+    bbox = tuple(map(float, getattr(detected_table, "bbox", ())))
+    if len(bbox) != 4:
+        return None
+
+    x_boundaries: list[float] = [bbox[0], bbox[2]]
+    row_intervals: list[tuple[float, float]] = []
+    for table_row in table_rows:
+        cells = [
+            tuple(map(float, cell))
+            for cell in (getattr(table_row, "cells", []) or [])
+            if cell is not None and len(cell) == 4
+        ]
+        if not cells:
+            return None
+        x_boundaries.extend(value for cell in cells for value in (cell[0], cell[2]))
+        row_intervals.append(
+            (
+                min(cell[1] for cell in cells),
+                max(cell[3] for cell in cells),
+            )
+        )
+
+    merged_x = _merge_pdf_boundaries(x_boundaries)
+    if len(merged_x) != expected_col_count + 1:
+        return None
+    column_intervals = list(zip(merged_x[:-1], merged_x[1:], strict=True))
+
+    grid_words: list[list[list[dict[str, Any]]]] = [
+        [[] for _ in range(expected_col_count)] for _ in range(expected_row_count)
+    ]
+    inside_words: list[dict[str, Any]] = []
+    for word in words:
+        center_x = (float(word.get("x0", 0) or 0) + float(word.get("x1", 0) or 0)) / 2
+        center_y = (
+            float(word.get("top", 0) or 0) + float(word.get("bottom", 0) or 0)
+        ) / 2
+        if not point_in_bbox(center_x, center_y, bbox):
+            continue
+        inside_words.append(word)
+        row_index = _pdf_interval_index(center_y, row_intervals)
+        column_index = _pdf_interval_index(center_x, column_intervals)
+        if row_index is None or column_index is None:
+            return None
+        grid_words[row_index][column_index].append(word)
+
+    if not inside_words:
+        return None
+
+    recovered: list[list[str]] = []
+    for row in grid_words:
+        recovered_row: list[str] = []
+        for cell_words in row:
+            lines = group_pdf_words_into_lines(cell_words)
+            recovered_row.append(normalize_text("\n".join(text for _, text in lines)))
+        recovered.append(recovered_row)
+
+    # 이미 신뢰할 수 있게 추출된 셀은 좌표 복원 뒤에도 같은 내용을 포함해야 한다.
+    for row_index, extracted_row in enumerate(extracted_rows):
+        for column_index, value in enumerate(extracted_row):
+            if column_index >= expected_col_count:
+                return None
+            expected = "".join(
+                character.casefold()
+                for character in normalize_text("" if value is None else str(value))
+                if character.isalnum()
+            )
+            actual = "".join(
+                character.casefold()
+                for character in recovered[row_index][column_index]
+                if character.isalnum()
+            )
+            if expected and expected not in actual:
+                return None
+
+    coverage = pdf_table_text_coverage(recovered, inside_words, bbox)
+    if coverage is None or coverage < PDF_TABLE_GEOMETRY_RECOVERY_THRESHOLD:
+        return None
+    return recovered
+
+
 def pdf_image_bbox(
     image: dict[str, Any], page_height: float
 ) -> tuple[float, float, float, float]:
@@ -1372,6 +1508,17 @@ def process_pdf_document(
                         "\n".join(text for _, text in fallback_lines)
                     )
                     if fallback_text:
+                        fallback_matrix = recover_pdf_table_matrix_from_geometry(
+                            detected_table,
+                            matrix,
+                            fallback_words_by_table[table_index],
+                        )
+                        fallback_flags = list(table_flags)
+                        fallback_flags.append(
+                            "pdf_table_geometry_recovered"
+                            if fallback_matrix is not None
+                            else "pdf_table_one_column_fallback"
+                        )
                         events.append(
                             (
                                 table_top,
@@ -1381,8 +1528,9 @@ def process_pdf_document(
                                     fallback_text,
                                     prepared_table_id,
                                     tuple(map(float, detected_table.bbox)),
+                                    fallback_matrix,
                                 ),
-                                table_flags,
+                                fallback_flags,
                             )
                         )
             for image in getattr(page, "images", []) or []:
@@ -1416,10 +1564,16 @@ def process_pdf_document(
                 render_mode: str | None = None
                 bbox_value: tuple[float, float, float, float] | None = None
                 quality_flags = list(event_flags)
+                table_fallback_matrix: list[list[str]] | None = None
 
                 if event_type in {"text", "table_text_fallback"}:
                     if event_type == "table_text_fallback":
-                        fallback_text, table_id, fallback_bbox = payload
+                        (
+                            fallback_text,
+                            table_id,
+                            fallback_bbox,
+                            table_fallback_matrix,
+                        ) = payload
                         display_content = normalize_text(str(fallback_text))
                         bbox_value = tuple(
                             round(float(value), 3) for value in fallback_bbox
@@ -1547,48 +1701,50 @@ def process_pdf_document(
                         }
                     )
 
-                blocks.append(
-                    {
-                        "schema_version": SCHEMA_VERSION,
-                        "source_id": source_id,
-                        "document_id": source_id,
-                        "block_id": block_id,
-                        "block_order": block_order,
-                        "parent_block_id": None,
-                        "scope": "body",
-                        "furniture_type": None,
-                        "block_type": block_type,
-                        "display_content": display_content,
-                        "retrieval_text": retrieval_text,
-                        "index_policy": index_policy,
-                        "index_reason": index_reason,
-                        "section_path": section_path,
-                        "section_idx": None,
-                        "para_idx": None,
-                        "page": page_number,
-                        "bbox": bbox_value,
-                        "table_id": table_id,
-                        "picture_id": picture_id,
-                        "nested_depth": 0,
-                        "render_mode": render_mode,
-                        "field_kind": None,
-                        "field_disposition": None,
-                        "field_raw_instruction": None,
-                        "list_marker": None,
-                        "list_enumerated": None,
-                        "list_level": None,
-                        "note_number": None,
-                        "note_marker_section_idx": None,
-                        "note_marker_para_idx": None,
-                        "formula_script": None,
-                        "formula_script_kind": None,
-                        "formula_inline": None,
-                        "toc_entry_count": None,
-                        "toc_entries": [],
-                        "caption_direction": None,
-                        "quality_flags": quality_flags,
-                    }
-                )
+                block_record = {
+                    "schema_version": SCHEMA_VERSION,
+                    "source_id": source_id,
+                    "document_id": source_id,
+                    "block_id": block_id,
+                    "block_order": block_order,
+                    "parent_block_id": None,
+                    "scope": "body",
+                    "furniture_type": None,
+                    "block_type": block_type,
+                    "display_content": display_content,
+                    "retrieval_text": retrieval_text,
+                    "index_policy": index_policy,
+                    "index_reason": index_reason,
+                    "section_path": section_path,
+                    "section_idx": None,
+                    "para_idx": None,
+                    "page": page_number,
+                    "bbox": bbox_value,
+                    "table_id": table_id,
+                    "picture_id": picture_id,
+                    "nested_depth": 0,
+                    "render_mode": render_mode,
+                    "field_kind": None,
+                    "field_disposition": None,
+                    "field_raw_instruction": None,
+                    "list_marker": None,
+                    "list_enumerated": None,
+                    "list_level": None,
+                    "note_number": None,
+                    "note_marker_section_idx": None,
+                    "note_marker_para_idx": None,
+                    "formula_script": None,
+                    "formula_script_kind": None,
+                    "formula_inline": None,
+                    "toc_entry_count": None,
+                    "toc_entries": [],
+                    "caption_direction": None,
+                    "quality_flags": quality_flags,
+                }
+                if table_fallback_matrix is not None:
+                    # Advanced 변환 직후 HTML·Markdown으로 치환되는 내부 구조다.
+                    block_record["table_fallback_matrix"] = table_fallback_matrix
+                blocks.append(block_record)
         page_count = len(pdf.pages)
 
     stats = {
@@ -1606,6 +1762,22 @@ def process_pdf_document(
         "pdf_fallback_text_error_count": fallback_text_error_count,
         "pdf_table_text_fallback_count": table_text_fallback_count,
         "pdf_table_text_fallback_page_count": len(table_text_fallback_pages),
+        "pdf_table_geometry_recovered_count": sum(
+            "pdf_table_geometry_recovered" in block.get("quality_flags", [])
+            for block in blocks
+        ),
+        "pdf_table_geometry_recovered_page_count": len(
+            {
+                block.get("page")
+                for block in blocks
+                if "pdf_table_geometry_recovered" in block.get("quality_flags", [])
+                and block.get("page") is not None
+            }
+        ),
+        "pdf_table_one_column_fallback_count": sum(
+            "pdf_table_one_column_fallback" in block.get("quality_flags", [])
+            for block in blocks
+        ),
         "quality_flags": sorted(document_quality_flags),
     }
     return blocks, tables, images, stats
@@ -1896,6 +2068,15 @@ def preprocess_document(
         "pdf_table_text_fallback_count": stats.get("pdf_table_text_fallback_count", 0),
         "pdf_table_text_fallback_page_count": stats.get(
             "pdf_table_text_fallback_page_count", 0
+        ),
+        "pdf_table_geometry_recovered_count": stats.get(
+            "pdf_table_geometry_recovered_count", 0
+        ),
+        "pdf_table_geometry_recovered_page_count": stats.get(
+            "pdf_table_geometry_recovered_page_count", 0
+        ),
+        "pdf_table_one_column_fallback_count": stats.get(
+            "pdf_table_one_column_fallback_count", 0
         ),
         "text_storage": "in_memory_only",
         "image_storage": "metadata_only_no_payload",

@@ -37,6 +37,7 @@ from src.preprocessing.clean_text import (
     furniture_roots_with_type,
     has_forbidden_image_payload,
     kind_name,
+    normalize_text,
     preprocess_document,
     walk_blocks_with_depth,
 )
@@ -384,15 +385,31 @@ def _content_type(block: dict[str, Any]) -> str:
 
 
 def _pdf_fallback_table_formats(block: dict[str, Any]) -> dict[str, str]:
-    """불완전 PDF 표의 bbox 원문을 안전한 1열 HTML·Markdown 표로 만든다.
+    """불완전 PDF 표의 bbox 원문을 HTML·Markdown 표로 만든다.
 
-    셀 좌표를 복원할 수 없는 상황에서 행 관계를 추측하지 않고, 읽기 순서로
-    보존한 각 줄을 1열 표의 한 행으로 저장한다. 이 결과는 표 Markdown만
+    기본 전처리가 검증된 셀 경계로 복원한 행렬이 있으면 원래 열 구조를
+    사용한다. 좌표 근거가 부족하면 행 관계를 추측하지 않고, 읽기 순서로
+    보존한 각 줄을 1열 표의 한 행으로 저장한다. 어느 경우든 표 Markdown만
     벡터화되며 KSS·Kiwi의 일반 문단 처리에는 들어가지 않는다.
     """
     table_id = str(block.get("table_id") or "")
     if not table_id:
         raise ValueError("PDF 표 fallback 블록에 table_id가 없습니다")
+
+    recovered_matrix = block.get("table_fallback_matrix")
+    if isinstance(recovered_matrix, list) and recovered_matrix:
+        normalized_matrix: list[list[str]] = []
+        for row in recovered_matrix:
+            if not isinstance(row, list) or not row:
+                raise ValueError("PDF 표 fallback 복원 행렬의 행이 올바르지 않습니다")
+            normalized_matrix.append(
+                [normalize_text("" if value is None else str(value)) for value in row]
+            )
+        width = max((len(row) for row in normalized_matrix), default=0)
+        if width < 2 or any(len(row) != width for row in normalized_matrix):
+            raise ValueError("PDF 표 fallback 복원 행렬의 열 수가 올바르지 않습니다")
+        return build_pdf_table_formats(normalized_matrix, table_id)
+
     lines = [
         compact_text(line)
         for line in str(block.get("retrieval_text") or "").splitlines()
@@ -446,6 +463,7 @@ def _build_advanced_block(
             "display_content",
             "retrieval_text",
             "render_mode",
+            "table_fallback_matrix",
         }
     }
     content_type = _content_type(block)
@@ -625,6 +643,15 @@ def build_advanced_result(
         ),
         "pdf_table_text_fallback_page_count": base_result.document.get(
             "pdf_table_text_fallback_page_count", 0
+        ),
+        "pdf_table_geometry_recovered_count": base_result.document.get(
+            "pdf_table_geometry_recovered_count", 0
+        ),
+        "pdf_table_geometry_recovered_page_count": base_result.document.get(
+            "pdf_table_geometry_recovered_page_count", 0
+        ),
+        "pdf_table_one_column_fallback_count": base_result.document.get(
+            "pdf_table_one_column_fallback_count", 0
         ),
         "block_count": len(blocks),
         "text_block_count": sum(block["content_type"] == "text" for block in blocks),
