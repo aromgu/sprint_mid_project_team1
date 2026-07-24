@@ -127,7 +127,9 @@ def golden_v3_evaluation() -> dict | None:
             "generation_model": answers[next(iter(answers))].get("model") if answers else None,
             "evaluation_model": ragas_payload.get("model"),
             "question_count": len(details),
-            "status": "complete" if len(details) == len(scores) else "partial",
+            "answered_question_count": len(answers),
+            "scored_question_count": len(scores),
+            "status": "complete" if len(details) == len(answers) == len(scores) else "partial",
         },
         "summary": ragas_payload.get("summary", {}),
         "low_score_counts": {

@@ -91,8 +91,10 @@ def test_golden_v3_evaluation_is_joined_for_ui() -> None:
     payload = golden_v3_evaluation()
     assert payload is not None
     assert payload["run"]["question_count"] == 104
-    assert payload["run"]["status"] == "complete"
+    assert payload["run"]["answered_question_count"] == 5
+    assert payload["run"]["scored_question_count"] == 104
+    assert payload["run"]["status"] == "partial"
     assert len(payload["details"]) == 104
-    assert payload["low_score_counts"]["false_rejections"] == 10
+    assert payload["low_score_counts"]["false_rejections"] == 0
     assert payload["summary"]["faithfulness"] > 0
     assert payload["e2e"]["answerability_accuracy"] > 0

@@ -39,9 +39,20 @@ data/*
 !data/manifests/**
 !data/indexes/
 !data/indexes/**
+!data/eval_corpus_v3/
 data/uploads/
 data/app_corpus_backup_before_eval_v3/
-data/eval_corpus_v3/
+data/eval_corpus_v3/*
+!data/eval_corpus_v3/source_map.json
+!data/eval_corpus_v3/processed/
+data/eval_corpus_v3/processed/*
+!data/eval_corpus_v3/processed/chunks.jsonl
+!data/eval_corpus_v3/indexes/
+data/eval_corpus_v3/indexes/*
+!data/eval_corpus_v3/indexes/bm25_fafd41fc3d05.json
+!data/eval_corpus_v3/indexes/bm25_fafd41fc3d05.pkl
+!data/eval_corpus_v3/indexes/dense_jhgan--ko-sroberta-multitask.json
+!data/eval_corpus_v3/indexes/dense_jhgan--ko-sroberta-multitask.npy
 
 # Large local work logs and editor files
 codex_*.md

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 
@@ -61,7 +62,8 @@ class DenseSearchEngine:
             self.model = SentenceTransformer(
                 self.model_name,
                 device=self.device,
-                local_files_only=True,
+                local_files_only=os.getenv("RAG_MODEL_LOCAL_ONLY", "true").lower()
+                not in {"0", "false", "no"},
             )
         return self.model
 

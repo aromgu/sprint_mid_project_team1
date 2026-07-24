@@ -69,7 +69,7 @@ def test_no_search_result_skips_openai() -> None:
     assert answer.generation_latency_ms == 0
 
 
-def test_compound_question_runs_expanded_bm25_per_field() -> None:
+def test_compound_question_uses_default_hybrid_per_field() -> None:
     search = FakeSearch([fixture_result()])
     service = OpenAIRAGService(
         client=FakeClient(ModelAnswer(
@@ -84,11 +84,25 @@ def test_compound_question_runs_expanded_bm25_per_field() -> None:
 
     assert answer.is_answerable
     assert len(search.calls) == 2
-    assert all(call[1]["retriever"] == "bm25" for call in search.calls)
+    assert all(call[1]["retriever"] == "hybrid" for call in search.calls)
     assert all(call[1]["top_k"] == 10 for call in search.calls)
     assert "사업비" in search.calls[0][0][0]
     assert "하자보수" in search.calls[1][0][0]
     assert answer.answer.splitlines() == ["총예산: 1억원", "무상유지보수기간: 미확인"]
+    assert answer.retriever == "hybrid-multi-query"
+
+
+def test_explicit_retriever_is_used_for_every_field() -> None:
+    search = FakeSearch([fixture_result()])
+    service = OpenAIRAGService(
+        client=FakeClient(ModelAnswer(answer="예산: 1억원", is_answerable=True, source_ids=["S1"])),
+        search_service=search,
+    )
+
+    answer = service.answer("총예산과 기간은?", retriever="bm25")
+
+    assert all(call[1]["retriever"] == "bm25" for call in search.calls)
+    assert answer.retriever == "bm25-multi-query"
 
 
 def test_provider_can_be_selected_per_request() -> None:

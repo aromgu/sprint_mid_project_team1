@@ -154,12 +154,13 @@ class OpenAIRAGService:
         selected_provider = self.resolve_provider(provider)
         rag = self.config["rag"]
         requested_top_k = top_k or rag.get("top_k", 10)
+        selected_retriever = retriever or rag.get("retriever") or self.search.default_retriever
         questions = plan_search_questions(question) if rag.get("decompose_questions", True) else []
         if not questions:
             questions = plan_search_questions(question)
         result_groups = [
             self.search.search(
-                item.expanded_query, retriever="bm25", top_k=requested_top_k,
+                item.expanded_query, retriever=selected_retriever, top_k=requested_top_k,
                 document_ids=document_ids, content_types=content_types,
                 neighbor_window=neighbor_window if neighbor_window is not None else rag.get("neighbor_window"),
             )
@@ -171,12 +172,12 @@ class OpenAIRAGService:
             amount_boost=float(rag.get("amount_boost", 0.12)),
             period_boost=float(rag.get("period_boost", 0.12)),
         )
-        selected_retriever = "bm25-multi-query"
+        response_retriever = f"{selected_retriever}-multi-query"
         if not results:
             return AnswerResponse(
                 question=question, answer="관련 문서 근거를 찾지 못했습니다.", is_answerable=False,
                 caveat="검색 결과가 없습니다.", citations=[], retrieved_chunk_ids=[],
-                retriever=selected_retriever, model=self.model_name_for(selected_provider),
+                retriever=response_retriever, model=self.model_name_for(selected_provider),
                 search_latency_ms=0.0, generation_latency_ms=0.0,
             )
         context, source_map = self._build_context(results)
@@ -223,7 +224,7 @@ class OpenAIRAGService:
             caveat=parsed.caveat if answerable else (parsed.caveat or "유효한 인용 근거가 없습니다."),
             citations=citations if answerable else [],
             retrieved_chunk_ids=[result.chunk.chunk_id for result in results],
-            retriever=selected_retriever, model=self.model_name_for(selected_provider),
+            retriever=response_retriever, model=self.model_name_for(selected_provider),
             search_latency_ms=sum((group[0].latency_ms or 0.0) for group in result_groups if group),
             generation_latency_ms=generation_latency,
             input_tokens=input_tokens, output_tokens=output_tokens,
