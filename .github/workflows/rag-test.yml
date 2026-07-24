@@ -64,6 +64,9 @@ jobs:
     timeout-minutes: 180
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+      WANDB_PROJECT: "rfp-action-copilot"
+      WANDB_TAGS: "github-actions,gemini-lite,hybrid,golden-v3"
       RAG_MODEL_LOCAL_ONLY: "false"
       HF_HOME: ${{ github.workspace }}/.cache/huggingface
       PYTHONUNBUFFERED: "1"
@@ -88,7 +91,9 @@ jobs:
         run: uv sync --dev --locked
 
       - name: Check Gemini secret
-        run: test -n "$GEMINI_API_KEY"
+        run: |
+          test -n "$GEMINI_API_KEY"
+          test -n "$WANDB_API_KEY"
 
       - name: Generate all 104 answers from scratch
         run: |
@@ -96,6 +101,8 @@ jobs:
             --provider gemini-lite \
             --request-interval 5 \
             --max-retries 8 \
+            --wandb \
+            --wandb-name "golden-v3-gemini-lite-hybrid-${{ github.run_id }}" \
             --output reports/workflow/gemini-lite-hybrid-answers.jsonl
 
       - name: Verify answer count
