@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -71,7 +71,7 @@ async def main():
         # ----------------------------
         # 1. Retrieval 단계
         # ----------------------------
-        retrieval_start_dt = datetime.now()
+        retrieval_start_dt = datetime.now(timezone.utc)
         retrieval_start_perf = time.perf_counter()
 
         logger.info(
@@ -84,7 +84,7 @@ async def main():
 
         retrieved_docs = search_documents(rewritten_query, k=5)
 
-        retrieval_end_dt = datetime.now()
+        retrieval_end_dt = datetime.now(timezone.utc)
         retrieval_elapsed = time.perf_counter() - retrieval_start_perf
 
         logger.info("검색된 문서 수: %d", len(retrieved_docs))
