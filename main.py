@@ -1,5 +1,4 @@
-# main.py
-
+import asyncio
 import logging
 import os
 import time
@@ -12,10 +11,20 @@ from src.generation.generate_answer import BidMateRAGSession
 from src.retrieval.retriever import search_documents
 
 load_dotenv()
+
+# -------------------------------------------------------------
+# 로거 설정
+# -------------------------------------------------------------
+setup_logging()
 logger = logging.getLogger(__name__)
 
+# httpx 및 openai 라이브러리의 HTTP 요청 로그(HTTP Request: POST ...) 차단
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("openai").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-def main():
+
+async def main():
     """
     멀티턴 RAG 실행 함수
 
@@ -28,15 +37,10 @@ def main():
 
     logger.info("프로그램 시작")
 
-    # 환경변수에서 OpenAI API 키 읽기
     openai_api_key = os.getenv("OPENAI_API_KEY")
-
-    # API 키가 없으면 예외 처리
     if not openai_api_key:
         raise ValueError("OPENAI_API_KEY가 설정되어 있지 않습니다.")
 
-    # 세션 객체는 프로그램 시작 시 한 번만 생성
-    # 이 객체가 살아있는 동안 previous_response_id가 유지됨
     session = BidMateRAGSession(api_key=openai_api_key)
 
     print("입찰메이트 RAG 멀티턴 Q&A를 시작합니다.")
@@ -44,24 +48,19 @@ def main():
     print("새 대화를 시작하려면 'reset'을 입력하세요.")
     print()
 
-    # 멀티턴 대화 루프 시작
     while True:
-        # 사용자 질문 입력
         query = input("질문 > ").strip()
 
-        # 종료 명령 처리
         if query.lower() in ["exit", "quit"]:
             print("프로그램을 종료합니다.")
             break
 
-        # 세션 초기화 명령 처리
         if query.lower() == "reset":
             session.reset()
             print("대화 세션이 초기화되었습니다.")
             print()
             continue
 
-        # 빈 입력 방지
         if not query:
             print("질문을 입력해주세요.")
             print()
@@ -80,8 +79,10 @@ def main():
             retrieval_start_dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         )
 
-        # 현재 질문 기준으로 관련 문서 검색
-        retrieved_docs = search_documents(query, k=5)
+        rewritten_query = await session.rewrite_query(query)
+        logger.info("재작성 질문: %s", rewritten_query)
+
+        retrieved_docs = search_documents(rewritten_query, k=5)
 
         retrieval_end_dt = datetime.now()
         retrieval_elapsed = time.perf_counter() - retrieval_start_perf
@@ -93,7 +94,6 @@ def main():
             retrieval_elapsed,
         )
 
-        # 검색 결과가 없으면 바로 다음 턴으로 넘어감
         if not retrieved_docs:
             print("검색된 문서가 없습니다.")
             print()
@@ -110,8 +110,11 @@ def main():
             ask_start_dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         )
 
-        # 같은 session 객체를 계속 사용하므로 멀티턴 유지
-        result = session.ask(query, retrieved_docs)
+        result = await session.ask(
+            query=query,
+            retrieved_docs=retrieved_docs,
+            rewritten_query=rewritten_query,
+        )
 
         ask_end_dt = datetime.now()
         ask_elapsed = time.perf_counter() - ask_start_perf
@@ -126,54 +129,61 @@ def main():
         logger.info("현재 previous_response_id: %s", session.previous_response_id)
 
         # ----------------------------
-        # 3. 결과 출력
+        # 3. 근거 문서 포맷팅 및 출력
         # ----------------------------
-        citations_text = "\n".join(
-            [
-                f"- source: {citation['source']} | "
-                f"chunk_id: {citation['chunk_id']} | "
-                f"score: {citation['score']}"
-                for citation in result["citations"]
-            ]
-        )
+        evidence_list = result.get("evidence", [])
+        if evidence_list:
+            evidence_lines = []
+            for item in evidence_list:
+                source = item.get("source", "N/A")
+                page = f"p.{item['page']}" if item.get("page") is not None else ""
+                chunk_id = (
+                    f"chunk:{item['chunk_id']}"
+                    if item.get("chunk_id") is not None
+                    else ""
+                )
+                score = (
+                    f"score:{item['score']:.4f}"
+                    if item.get("score") is not None
+                    else ""
+                )
+                quote = item.get("quote", "")
 
-        evidence_text = "\n".join(
-            [
-                f"- source: {item['source']} | "
-                f"chunk_id: {item['chunk_id']} | "
-                f"quote: {item['quote']}"
-                for item in result["evidence_quotes"]
-            ]
-        )
+                meta_info = " | ".join(filter(None, [source, page, chunk_id, score]))
+                evidence_lines.append(f'- [{meta_info}]\n  인용: "{quote}"')
+            evidence_text = "\n".join(evidence_lines)
+        else:
+            evidence_text = "(근거 인용 없음)"
 
         answer_block = "\n\n".join(
             [
                 "===== 직접 답변 =====",
-                result["answer"],
+                str(result.get("answer", "")),
                 "===== 요약 =====",
-                result["summary"],
-                "===== 근거 문서 =====",
-                citations_text,
-                "===== 근거 인용 =====",
+                str(result.get("summary", "")),
+                "===== 근거 문서 및 인용 =====",
                 evidence_text,
                 "===== 신뢰도 =====",
-                str(result["confidence"]),
+                str(result.get("confidence", "")),
                 "===== 추가 확인 필요 여부 =====",
-                str(result["needs_clarification"]),
+                str(result.get("needs_clarification", "")),
                 "===== 확인 질문 =====",
-                str(result["clarification_question"]),
+                str(result.get("clarification_question", "")),
                 "===== 충돌 정보 =====",
-                str(result["conflicts"]),
+                str(result.get("conflicts", "")),
             ]
         )
 
-        print()
-        print(answer_block)
-        print()
+        # 터미널 화면 출력
+        # print(answer_block)
+        # print()
 
-        logger.info("응답 결과\n%s", answer_block)
+        # 로그 파일 및 로거 기록
+        logger.info(
+            "--- [답변 생성 결과 시작] ---\n%s\n--- [답변 생성 결과 끝] ---",
+            answer_block,
+        )
 
 
 if __name__ == "__main__":
-    setup_logging()
-    main()
+    asyncio.run(main())
