@@ -1,0 +1,136 @@
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans);background:#f5f6f8;color:#1a1a1a;font-size:13px}
+.topbar{background:#fff;border-bottom:1px solid #e2e4e8;padding:0 20px;height:44px;display:flex;align-items:center;justify-content:space-between}
+.logo{font-size:14px;font-weight:500;color:#1a1a1a;display:flex;align-items:center;gap:8px}
+.logo-icon{width:24px;height:24px;background:#1a56db;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px}
+.statusbar{background:#1e3a5f;color:#fff;padding:0 20px;height:36px;display:flex;align-items:center;gap:0}
+.sb{display:flex;align-items:center;gap:5px;padding:0 14px;border-right:1px solid rgba(255,255,255,.15);font-size:12px;color:rgba(255,255,255,.7)}
+.sb:first-child{padding-left:0}
+.sb-v{font-weight:500;color:#fff}
+.sb-v.red{color:#fca5a5}
+.sb-v.amber{color:#fcd34d}
+.layout{display:grid;grid-template-columns:160px 1fr 210px;min-height:520px}
+.sidebar{background:#fff;border-right:1px solid #e2e4e8;padding:14px 0}
+.sidebar-lbl{font-size:10px;color:#9ca3af;padding:0 12px 6px;text-transform:uppercase;letter-spacing:.06em}
+.doc-item{display:flex;align-items:center;gap:7px;padding:7px 12px;font-size:12px;color:#6b7280;cursor:pointer}
+.doc-item.on{background:#eff6ff;color:#1e40af;font-weight:500}
+.doc-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.center{display:flex;flex-direction:column;background:#f5f6f8}
+.tabs{background:#fff;border-bottom:1px solid #e2e4e8;padding:0 16px;display:flex}
+.tab{padding:10px 14px;font-size:12px;color:#6b7280;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap}
+.tab.on{color:#1a56db;border-bottom-color:#1a56db;font-weight:500}
+.content{padding:16px;display:flex;flex-direction:column;gap:12px}
+.sec-lbl{font-size:10px;font-weight:500;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em;margin-bottom:0}
+.card-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.kpi{background:#fff;border:1px solid #e2e4e8;border-radius:10px;padding:14px;border-top:3px solid transparent}
+.kpi.danger{border-top-color:#dc2626}
+.kpi.warning{border-top-color:#f59e0b}
+.kpi.info{border-top-color:#1a56db}
+.kpi.success{border-top-color:#16a34a}
+.kpi-lbl{font-size:11px;color:#9ca3af;margin-bottom:5px}
+.kpi-val{font-size:22px;font-weight:500;color:#111827;line-height:1}
+.kpi-sub{font-size:11px;color:#6b7280;margin-top:3px}
+.kpi-val.red{color:#dc2626}
+.kpi-val.amber{color:#d97706}
+.kpi-val.blue{color:#1a56db}
+.action-card{background:#fff;border:1px solid #e2e4e8;border-radius:10px;padding:14px}
+.action-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f3f4f6;font-size:12px;color:#374151}
+.action-row:last-child{border-bottom:none;padding-bottom:0}
+.action-row:first-child{padding-top:0}
+.pd{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.ph{background:#dc2626}.pm{background:#f59e0b}
+.adate{margin-left:auto;font-size:11px;color:#9ca3af}
+.tl-card{background:#fff;border:1px solid #e2e4e8;border-radius:10px;padding:14px}
+.tl-row{display:flex;align-items:center;gap:10px;padding:5px 0;font-size:12px;color:#374151}
+.tl-dt{font-size:11px;color:#9ca3af;width:42px;flex-shrink:0}
+.tl-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.ep{background:#fff;border-left:1px solid #e2e4e8;padding:14px;display:flex;flex-direction:column;gap:10px}
+.ep-lbl{font-size:10px;font-weight:500;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em}
+.ep-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px}
+.ep-doc{font-size:11px;font-weight:500;color:#1e293b;margin-bottom:3px}
+.ep-pg{font-size:11px;color:#64748b;margin-bottom:6px}
+.ep-quote{font-size:11px;color:#475569;line-height:1.5;background:#fff;border-left:2px solid #1a56db;padding:6px 8px;border-radius:0 4px 4px 0;margin-bottom:6px}
+.ep-score{display:flex;align-items:center;gap:5px;font-size:11px;color:#9ca3af}
+.sbar{flex:1;height:4px;background:#e2e8f0;border-radius:2px}
+.sfill{height:100%;border-radius:2px;background:#16a34a}
+.ep-btns{display:flex;gap:6px}
+.ep-btn{flex:1;padding:5px;font-size:11px;border:1px solid #e2e4e8;border-radius:6px;background:#fff;color:#6b7280;cursor:pointer;text-align:center;font-family:var(--font-sans)}
+.ep-open{width:100%;padding:6px;font-size:11px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;color:#1e40af;cursor:pointer;font-family:var(--font-sans);text-align:center}
+</style>
+<div class="topbar">
+  <div class="logo"><div class="logo-icon"><i class="ti ti-file-description" style="font-size:12px" aria-hidden="true"></i></div>RFP Action Copilot</div>
+  <span style="font-size:12px;color:#6b7280">지능형 민원시스템 구축 — 행정안전부</span>
+</div>
+<div class="statusbar">
+  <div class="sb">제출<span class="sb-v red">D-7</span></div>
+  <div class="sb">질의<span class="sb-v red">D-3</span></div>
+  <div class="sb">상태<span class="sb-v">검토 중</span></div>
+  <div class="sb"><span class="sb-v red">실격 2건</span></div>
+  <div class="sb"><span class="sb-v amber">감점 1건</span></div>
+  <div class="sb">제출물<span class="sb-v">3/8</span></div>
+</div>
+<div class="layout">
+  <div class="sidebar">
+    <div class="sidebar-lbl">문서 목록</div>
+    <div class="doc-item on"><span class="doc-dot" style="background:#1a56db"></span>지능형 민원시스템</div>
+    <div class="doc-item"><span class="doc-dot" style="background:#d1d5db"></span>예산관리 플랫폼</div>
+    <div class="doc-item"><span class="doc-dot" style="background:#d1d5db"></span>공공데이터 포털</div>
+  </div>
+  <div class="center">
+    <div class="tabs">
+      <div class="tab on">Overview</div>
+      <div class="tab">Go / No-Go</div>
+      <div class="tab">실행 준비</div>
+      <div class="tab">요구사항</div>
+      <div class="tab">AI 질문</div>
+    </div>
+    <div class="content">
+      <div class="sec-lbl">핵심 현황</div>
+      <div class="card-row">
+        <div class="kpi danger"><div class="kpi-lbl">제출 마감</div><div class="kpi-val red">D-7</div><div class="kpi-sub">2026-08-15 18:00</div></div>
+        <div class="kpi danger"><div class="kpi-lbl">질의 마감</div><div class="kpi-val red">D-3</div><div class="kpi-sub">2026-07-28 17:00</div></div>
+        <div class="kpi warning"><div class="kpi-lbl">자격 충족</div><div class="kpi-val amber" style="font-size:14px;margin-top:3px">확인 필요</div><div class="kpi-sub">미확인 2항목</div></div>
+      </div>
+      <div class="card-row">
+        <div class="kpi danger"><div class="kpi-lbl">실격 위험</div><div class="kpi-val red">2건</div><div class="kpi-sub">즉시 확인 필요</div></div>
+        <div class="kpi warning"><div class="kpi-lbl">감점 위험</div><div class="kpi-val amber">1건</div><div class="kpi-sub">PM 경력 미달 가능</div></div>
+        <div class="kpi info"><div class="kpi-lbl">제출물 완료율</div><div class="kpi-val blue">3/8</div><div class="kpi-sub">37% 완료</div></div>
+      </div>
+      <div class="sec-lbl">지금 할 일</div>
+      <div class="action-card">
+        <div class="action-row"><span class="pd ph"></span>질의서 작성 및 제출<span class="adate">07-28</span></div>
+        <div class="action-row"><span class="pd ph"></span>사업 참여 의향 공문 발송<span class="adate">07-25</span></div>
+        <div class="action-row"><span class="pd ph"></span>중소기업 확인서 발급 신청<span class="adate">07-30</span></div>
+        <div class="action-row"><span class="pd pm"></span>제안서 작성팀 구성<span class="adate">08-01</span></div>
+      </div>
+      <div class="sec-lbl">주요 일정</div>
+      <div class="tl-card">
+        <div class="tl-row"><span class="tl-dt">07-25</span><span class="tl-dot" style="background:#dc2626"></span>참여 의향 공문 발송</div>
+        <div class="tl-row"><span class="tl-dt">07-28</span><span class="tl-dot" style="background:#dc2626"></span>질의 마감</div>
+        <div class="tl-row"><span class="tl-dt">08-01</span><span class="tl-dot" style="background:#f59e0b"></span>제안팀 구성 완료</div>
+        <div class="tl-row"><span class="tl-dt">08-15</span><span class="tl-dot" style="background:#1a56db"></span>제출 마감 18:00</div>
+        <div class="tl-row"><span class="tl-dt">08-20</span><span class="tl-dot" style="background:#9ca3af"></span>발표 PT 제출</div>
+      </div>
+    </div>
+  </div>
+  <div class="ep">
+    <div class="ep-lbl"><i class="ti ti-bookmark" style="font-size:11px" aria-hidden="true"></i> 근거 패널</div>
+    <div class="ep-card">
+      <div class="ep-doc"><i class="ti ti-file-text" style="font-size:11px" aria-hidden="true"></i> 행정안전부_RFP_2026.pdf</div>
+      <div class="ep-pg"><i class="ti ti-map-pin" style="font-size:11px" aria-hidden="true"></i> p.12</div>
+      <div class="ep-quote">"최근 3년 이내 공공기관 대상 정보시스템 구축 실적 1건 이상 보유 업체로 한정한다."</div>
+      <div class="ep-score"><span>신뢰도</span><div class="sbar"><div class="sfill" style="width:96%"></div></div><span>0.96</span></div>
+    </div>
+    <div class="ep-btns">
+      <div class="ep-btn"><i class="ti ti-chevron-left" aria-hidden="true"></i> 이전</div>
+      <div class="ep-btn">다음 <i class="ti ti-chevron-right" aria-hidden="true"></i></div>
+    </div>
+    <div class="ep-open"><i class="ti ti-external-link" style="font-size:11px" aria-hidden="true"></i> PDF p.12 열기</div>
+    <div style="border-top:1px solid #f3f4f6;padding-top:8px">
+      <div style="font-size:11px;color:#9ca3af;margin-bottom:5px">근거 2개</div>
+      <div style="font-size:11px;color:#6b7280;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;margin-bottom:4px">p.11 · 사업자 등록 요건 · 0.93</div>
+      <div style="font-size:11px;color:#6b7280;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px">p.12 · 실적 요건 · 0.96</div>
+    </div>
+  </div>
+</div>

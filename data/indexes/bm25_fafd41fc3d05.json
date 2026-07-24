@@ -1,0 +1,14 @@
+{
+  "chunks_sha256": "dd2f9beddfb6c3204903d654fc04a3b1e6077f0428562f792821b07462e1b410",
+  "chunk_count": 1042,
+  "tokenizer_version": "korean-term-char-ngram-v1:2,3",
+  "tokenizer": {
+    "type": "korean_ngram",
+    "ngram_sizes": [
+      2,
+      3
+    ]
+  },
+  "k1": 1.5,
+  "b": 0.75
+}

@@ -1,0 +1,5 @@
+extends: ../search.yaml
+pipeline:
+  retriever: hybrid
+fusion:
+  type: rrf

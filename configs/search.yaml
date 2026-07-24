@@ -1,0 +1,44 @@
+paths:
+  chunks: "data/processed/chunks.jsonl"
+  index_dir: "data/indexes"
+
+pipeline:
+  retriever: "hybrid"
+  top_k: 10
+
+bm25:
+  k1: 1.5
+  b: 0.75
+  candidate_k: 20
+  tokenizer:
+    type: "korean_ngram"
+    ngram_sizes: [2, 3]
+
+dense:
+  model: "jhgan/ko-sroberta-multitask"
+  batch_size: 32
+  candidate_k: 20
+  device: "cpu"
+  query_prefix: ""
+  passage_prefix: ""
+
+fusion:
+  type: "rrf"
+  rrf_k: 60
+  bm25_weight: 1.0
+  dense_weight: 1.0
+  candidate_k: 20
+
+reranker:
+  enabled: false
+  type: "cross_encoder"
+  base_retriever: "hybrid"
+  model: "Dongjin-kr/ko-reranker"
+  candidate_k: 12
+  batch_size: 2
+  max_length: 512
+  device: "cpu"
+
+context_expansion:
+  enabled: false
+  window: 1

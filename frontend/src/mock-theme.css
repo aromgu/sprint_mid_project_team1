@@ -1,0 +1,31 @@
+/* Visual alignment with MockData/workspace_overview_light.html */
+header { height: 80px; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; padding: 0; }
+header>div:first-child { height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; }
+header .statusbar { height: 36px; min-height: 36px; background: #1e3a5f; color: #fff; padding: 0 20px; display: flex; align-items: center; gap: 0; }
+header .statusbar span { color: rgba(255,255,255,.72); padding: 0 14px; border-right: 1px solid rgba(255,255,255,.15); font-size: 12px; }
+header .statusbar span:first-child { padding-left: 0; }
+header .statusbar .danger { color: #fca5a5; }
+header .statusbar .warning { color: #fcd34d; }
+.layout { grid-template-columns: 160px minmax(0, 1fr) 210px; min-height: calc(100vh - 80px); }
+nav { padding: 14px 0; }
+.layout h2 { display: none; }
+.listSearch, .listControls, .uploadCard { margin-left: 12px; margin-right: 12px; }
+.listControls { flex-wrap: wrap; }
+.listControls select { width: calc(50% - 3px); }
+.listControls select:last-child { width: 100%; }
+.doc { padding: 7px 12px; border-radius: 0; font-size: 12px; }
+.doc b { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.doc small, .doc em { font-size: 9px; }
+.workspaceHead { display: none; }
+.tabs { padding: 0 16px; }
+.tab { padding: 10px 14px; }
+.content { padding: 16px; gap: 12px; background: #f5f6f8; }
+.summaryGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.summaryCard { border-radius: 10px; padding: 14px; border-top: 3px solid transparent; }
+.summaryCard.severity-critical { border-top-color: #dc2626; }
+.summaryCard.severity-warning { border-top-color: #f59e0b; }
+.summaryCard strong { font-size: 21px; font-weight: 500; }
+.timeline, .cards { margin-top: 0; }
+.card { border-radius: 10px; }
+.evidence { padding: 14px; gap: 10px; }
+@media(max-width:900px){.layout{grid-template-columns:150px minmax(0,1fr)}.evidence{display:none}.summaryGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}

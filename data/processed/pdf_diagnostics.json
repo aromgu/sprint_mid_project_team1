@@ -1,0 +1,175 @@
+{
+  "documents": [
+    {
+      "document_id": "eval_01",
+      "filename": "한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템 .pdf",
+      "page_count": 44,
+      "text_pages": 44,
+      "empty_pages": [],
+      "ocr_required_pages": [],
+      "total_text_chars": 113946,
+      "total_images": 9,
+      "detected_tables": 88,
+      "detected_requirement_ids": 144,
+      "repeated_margin_lines_removed": [
+        "요구사항"
+      ],
+      "status": "text_extractable",
+      "chunk_count": 165
+    },
+    {
+      "document_id": "eval_02",
+      "filename": "한국수자원공사_건설통합시스템(CMS) 고도화.pdf",
+      "page_count": 85,
+      "text_pages": 84,
+      "empty_pages": [
+        56
+      ],
+      "ocr_required_pages": [
+        55,
+        56
+      ],
+      "total_text_chars": 72424,
+      "total_images": 44,
+      "detected_tables": 135,
+      "detected_requirement_ids": 98,
+      "repeated_margin_lines_removed": [],
+      "status": "needs_ocr",
+      "chunk_count": 106
+    },
+    {
+      "document_id": "eval_03",
+      "filename": "한영대학_한영대학교 특성화 맞춤형 교육환경 구축 - 트랙운영 학사정보.pdf",
+      "page_count": 31,
+      "text_pages": 31,
+      "empty_pages": [],
+      "ocr_required_pages": [],
+      "total_text_chars": 51547,
+      "total_images": 31,
+      "detected_tables": 104,
+      "detected_requirement_ids": 57,
+      "repeated_margin_lines_removed": [],
+      "status": "text_extractable",
+      "chunk_count": 69
+    },
+    {
+      "document_id": "eval_04",
+      "filename": "인천광역시_도시계획위원회 통합관리시스템 구축용역.pdf",
+      "page_count": 44,
+      "text_pages": 44,
+      "empty_pages": [],
+      "ocr_required_pages": [],
+      "total_text_chars": 70815,
+      "total_images": 62,
+      "detected_tables": 110,
+      "detected_requirement_ids": 108,
+      "repeated_margin_lines_removed": [],
+      "status": "text_extractable",
+      "chunk_count": 97
+    },
+    {
+      "document_id": "eval_05",
+      "filename": "재단법인스포츠윤리센터_스포츠윤리센터 LMS(학습지원시스템) 기능개선.pdf",
+      "page_count": 102,
+      "text_pages": 102,
+      "empty_pages": [],
+      "ocr_required_pages": [
+        56,
+        57
+      ],
+      "total_text_chars": 88359,
+      "total_images": 6,
+      "detected_tables": 118,
+      "detected_requirement_ids": 110,
+      "repeated_margin_lines_removed": [],
+      "status": "needs_ocr",
+      "chunk_count": 125
+    },
+    {
+      "document_id": "eval_06",
+      "filename": "한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.pdf",
+      "page_count": 100,
+      "text_pages": 96,
+      "empty_pages": [
+        69,
+        70,
+        71,
+        72
+      ],
+      "ocr_required_pages": [
+        68,
+        69,
+        70,
+        71,
+        72,
+        73
+      ],
+      "total_text_chars": 74529,
+      "total_images": 104,
+      "detected_tables": 79,
+      "detected_requirement_ids": 119,
+      "repeated_margin_lines_removed": [],
+      "status": "needs_ocr",
+      "chunk_count": 105
+    },
+    {
+      "document_id": "eval_07",
+      "filename": "한국전기안전공사_전기안전 관제시스템 보안 모듈 개발 용역.pdf",
+      "page_count": 74,
+      "text_pages": 73,
+      "empty_pages": [
+        66
+      ],
+      "ocr_required_pages": [
+        64,
+        66,
+        67
+      ],
+      "total_text_chars": 57357,
+      "total_images": 9,
+      "detected_tables": 97,
+      "detected_requirement_ids": 77,
+      "repeated_margin_lines_removed": [],
+      "status": "needs_ocr",
+      "chunk_count": 81
+    },
+    {
+      "document_id": "eval_08",
+      "filename": "한국생산기술연구원_EIP3.0 고압가스 안전관리 시스템 구축 용역.pdf",
+      "page_count": 144,
+      "text_pages": 143,
+      "empty_pages": [
+        12
+      ],
+      "ocr_required_pages": [
+        12,
+        103
+      ],
+      "total_text_chars": 119492,
+      "total_images": 11,
+      "detected_tables": 141,
+      "detected_requirement_ids": 145,
+      "repeated_margin_lines_removed": [],
+      "status": "needs_ocr",
+      "chunk_count": 167
+    },
+    {
+      "document_id": "eval_09",
+      "filename": "경기도사회서비스원_2024년 통합사회정보시스템 운영지원.pdf",
+      "page_count": 113,
+      "text_pages": 113,
+      "empty_pages": [],
+      "ocr_required_pages": [],
+      "total_text_chars": 85900,
+      "total_images": 3,
+      "detected_tables": 132,
+      "detected_requirement_ids": 156,
+      "repeated_margin_lines_removed": [
+        "요구사항 번호",
+        "요구사항 분류"
+      ],
+      "status": "text_extractable",
+      "chunk_count": 127
+    }
+  ]
+}

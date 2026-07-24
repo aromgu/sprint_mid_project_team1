@@ -1,0 +1,9 @@
+extends: search.yaml
+
+paths:
+  chunks: "data/eval_corpus_v3/processed/chunks.jsonl"
+  index_dir: "data/eval_corpus_v3/indexes"
+
+pipeline:
+  retriever: hybrid
+  top_k: 10

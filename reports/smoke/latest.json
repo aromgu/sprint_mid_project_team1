@@ -1,0 +1,30 @@
+{
+  "checks": [
+    {
+      "name": "health",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "name": "documents",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "name": "page",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "name": "toc",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "name": "search",
+      "status": 200,
+      "ok": true
+    }
+  ],
+  "live": false
+}

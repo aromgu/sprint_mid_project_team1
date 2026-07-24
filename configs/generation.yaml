@@ -1,0 +1,36 @@
+openai:
+  model: "gpt-5-nano"
+  reasoning_effort: "minimal"
+  # Leave enough room for the structured JSON envelope and citations during
+  # batch evaluation. The answer prompt still asks for concise output.
+  max_output_tokens: 1200
+  timeout_seconds: 60
+  # 2026-07-21 official standard API prices, USD per 1M text tokens.
+  input_price_per_million: 0.05
+  output_price_per_million: 0.40
+
+rag:
+  search_config: "configs/search.yaml"
+  retriever: null
+  top_k: 10
+  neighbor_window: 1
+  max_context_chars: 12000
+  # Compound questions are split into fields and every field is searched with BM25.
+  decompose_questions: true
+  requirement_boost: 0.15
+  amount_boost: 0.12
+  period_boost: 0.12
+
+# Select with RAG_LLM_PROVIDER=openai|gemini|gemini-lite (config value is the default).
+llm:
+  provider: "openai"
+
+gemini:
+  model: "gemini-3.5-flash"
+  max_output_tokens: 1200
+  timeout_seconds: 60
+
+gemini-lite:
+  model: "gemini-3.5-flash-lite"
+  max_output_tokens: 1200
+  timeout_seconds: 60

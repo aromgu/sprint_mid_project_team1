@@ -1,0 +1,636 @@
+{
+  "Ⅴ_제안안내_2_입찰및계약방식": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_01_p025_c0128",
+      "eval_01_p026_c0133",
+      "eval_01_p026_c0132",
+      "eval_01_p025_c0130"
+    ]
+  },
+  "Ⅰ_사업개요_1_사업일반": {
+    "question_count": 12,
+    "matched_questions": 5,
+    "example_chunks": [
+      "eval_01_p001_c0001",
+      "eval_01_p002_c0005"
+    ]
+  },
+  "Ⅴ_제안안내_1_참가자격": {
+    "question_count": 6,
+    "matched_questions": 6,
+    "example_chunks": [
+      "eval_01_p024_c0127",
+      "eval_01_p025_c0128",
+      "eval_01_p026_c0135",
+      "eval_01_p024_c0126",
+      "eval_01_p017_c0080"
+    ]
+  },
+  "Ⅳ_제안요청내용_2_상세요구사항_PSR-001": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_01_p021_PSR-001",
+      "eval_01_p007_c0014"
+    ]
+  },
+  "Ⅳ_제안요청내용_2_상세요구사항_PMR-008": {
+    "question_count": 3,
+    "matched_questions": 2,
+    "example_chunks": [
+      "eval_01_p020_c0097",
+      "eval_01_p007_c0014"
+    ]
+  },
+  "Ⅳ_제안요청내용_2_상세요구사항_회계컨설팅": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_01_p022_c0114",
+      "eval_01_p022_CSR-002_2",
+      "eval_01_p022_CSR-002",
+      "eval_01_p022_c0117",
+      "eval_01_p022_c0119"
+    ]
+  },
+  "붙임7_별표2_보안위약금부과기준": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_01_p037_c0154",
+      "eval_01_p036_c0151",
+      "eval_01_p036_c0150"
+    ]
+  },
+  "붙임7_별표1_사업자보안위규처리기준": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_01_p036_c0151",
+      "eval_01_p036_c0150"
+    ]
+  },
+  "Ⅳ_제안요청내용_2_상세요구사항_PMR-006": {
+    "question_count": 3,
+    "matched_questions": 0,
+    "example_chunks": []
+  },
+  "Ⅳ_제안요청내용_2_상세요구사항_PER-004": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_01_p022_c0121",
+      "eval_01_p008_c0015"
+    ]
+  },
+  "Ⅳ_제안요청내용_2_상세요구사항_SER-001": {
+    "question_count": 3,
+    "matched_questions": 0,
+    "example_chunks": []
+  },
+  "Ⅳ_제안요청내용_2_상세요구사항_보안요구사항": {
+    "question_count": 6,
+    "matched_questions": 6,
+    "example_chunks": [
+      "eval_01_p014_SER-003",
+      "eval_01_p014_c0053",
+      "eval_05_p043_c0070",
+      "eval_01_p014_c0069",
+      "eval_05_p029_SER-003",
+      "eval_01_p014_SER-002",
+      "eval_05_p030_SER-004"
+    ]
+  },
+  "Ⅰ_과업설명서_과업수행기간": {
+    "question_count": 6,
+    "matched_questions": 6,
+    "example_chunks": [
+      "eval_02_p007_c0004",
+      "eval_02_p005_c0003"
+    ]
+  },
+  "Ⅱ_일반과업지시서_착수신고서제출": {
+    "question_count": 6,
+    "matched_questions": 6,
+    "example_chunks": [
+      "eval_02_p008_c0005",
+      "eval_02_p007_c0004",
+      "eval_02_p028_c0041",
+      "eval_02_p028_SFR-014"
+    ]
+  },
+  "Ⅰ_과업설명서_과업범위_위원회": {
+    "question_count": 6,
+    "matched_questions": 6,
+    "example_chunks": [
+      "eval_02_p022_c0024",
+      "eval_02_p020_c0021",
+      "eval_02_p019_c0020",
+      "eval_02_p004_c0002",
+      "eval_02_p021_c0022",
+      "eval_02_p017_c0017",
+      "eval_02_p021_c0023",
+      "eval_02_p022_c0025"
+    ]
+  },
+  "Ⅱ_일반과업지시서_보고": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_02_p008_c0005",
+      "eval_02_p046_c0064",
+      "eval_02_p047_c0067",
+      "eval_02_p035_c0049",
+      "eval_02_p051_c0071"
+    ]
+  },
+  "Ⅰ_과업설명서_과업범위_건설사업관리용역": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_02_p001_c0001",
+      "eval_02_p026_SFR-012",
+      "eval_02_p028_SFR-014",
+      "eval_02_p057_c0074",
+      "eval_02_p027_SFR-013"
+    ]
+  },
+  "Ⅰ_과업설명서_사업주요내용": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_02_p001_c0001",
+      "eval_02_p004_c0002"
+    ]
+  },
+  "Ⅱ_일반과업지시서_계약상대자의책임": {
+    "question_count": 6,
+    "matched_questions": 6,
+    "example_chunks": [
+      "eval_02_p009_c0007"
+    ]
+  },
+  "Ⅱ_일반과업지시서_감독원의감독": {
+    "question_count": 3,
+    "matched_questions": 0,
+    "example_chunks": []
+  },
+  "Ⅰ_과업설명서_설계변경조건": {
+    "question_count": 6,
+    "matched_questions": 6,
+    "example_chunks": [
+      "eval_02_p005_c0003"
+    ]
+  },
+  "Ⅰ_사업안내_1_사업개요": {
+    "question_count": 9,
+    "matched_questions": 4,
+    "example_chunks": [
+      "eval_03_p001_c0004",
+      "eval_03_p001_c0001"
+    ]
+  },
+  "Ⅱ_구축방안_3_구축범위": {
+    "question_count": 3,
+    "matched_questions": 0,
+    "example_chunks": []
+  },
+  "Ⅲ_제안요청내용_1_제안요청개요": {
+    "question_count": 12,
+    "matched_questions": 0,
+    "example_chunks": []
+  },
+  "Ⅱ_구축방안_3_구축범위_트랙제교육과정운영프로그램": {
+    "question_count": 6,
+    "matched_questions": 6,
+    "example_chunks": [
+      "eval_03_p002_c0005"
+    ]
+  },
+  "Ⅱ_구축방안_2_구축일정": {
+    "question_count": 6,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_03_p001_c0004"
+    ]
+  },
+  "Ⅱ_구축방안_3_구축범위_학사정보시스템고도화": {
+    "question_count": 6,
+    "matched_questions": 5,
+    "example_chunks": [
+      "eval_03_p003_c0006",
+      "eval_03_p001_c0004",
+      "eval_03_p001_c0001",
+      "eval_03_p001_c0002"
+    ]
+  },
+  "Ⅰ_과업의개요_2_용역개요": {
+    "question_count": 12,
+    "matched_questions": 9,
+    "example_chunks": [
+      "eval_04_p002_c0006"
+    ]
+  },
+  "Ⅰ_과업의개요_4_과업의범위": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_04_p002_c0006",
+      "eval_04_p002_c0007",
+      "eval_04_p003_c0010"
+    ]
+  },
+  "Ⅰ_과업의개요_4_과업의범위_운영시스템구조설계": {
+    "question_count": 15,
+    "matched_questions": 12,
+    "example_chunks": [
+      "eval_04_p002_c0006"
+    ]
+  },
+  "Ⅰ_과업의개요_3_과업배경및목적": {
+    "question_count": 9,
+    "matched_questions": 8,
+    "example_chunks": [
+      "eval_04_p002_c0007",
+      "eval_04_p002_c0008"
+    ]
+  },
+  "Ⅰ_과업의개요_4_과업의범위_내부시스템연계": {
+    "question_count": 6,
+    "matched_questions": 5,
+    "example_chunks": [
+      "eval_04_p002_c0007"
+    ]
+  },
+  "Ⅰ_개요_1_사업일반": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_05_p002_c0004",
+      "eval_05_p003_c0005",
+      "eval_05_p001_c0001",
+      "eval_05_p010_c0013",
+      "eval_05_p022_PMR-001"
+    ]
+  },
+  "Ⅵ_제안안내사항_2_입찰참가자격": {
+    "question_count": 6,
+    "matched_questions": 6,
+    "example_chunks": [
+      "eval_05_p045_c0072",
+      "eval_05_p046_c0073",
+      "eval_05_p077_c0101",
+      "eval_05_p040_c0066",
+      "eval_05_p036_SER-013"
+    ]
+  },
+  "Ⅵ_제안안내사항_3_입찰시유의사항": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_05_p046_c0073",
+      "eval_05_p047_c0074"
+    ]
+  },
+  "Ⅰ_개요_3_사업범위": {
+    "question_count": 9,
+    "matched_questions": 8,
+    "example_chunks": [
+      "eval_05_p003_c0005",
+      "eval_05_p004_c0007",
+      "eval_05_p004_c0006"
+    ]
+  },
+  "Ⅳ_제안요청내용_2_상세요구사항_미디어플레이어": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_05_p012_c0016",
+      "eval_05_p003_c0005",
+      "eval_05_p013_c0017",
+      "eval_05_p009_c0012"
+    ]
+  },
+  "Ⅳ_제안요청내용_2_상세요구사항_PSR-002_하자담보책임": {
+    "question_count": 3,
+    "matched_questions": 1,
+    "example_chunks": [
+      "eval_05_p010_c0013"
+    ]
+  },
+  "Ⅳ_제안요청내용_2_상세요구사항_PMR-009_지체상금": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_05_p027_c0044",
+      "eval_05_p010_c0013"
+    ]
+  },
+  "Ⅶ_제안서평가방법_2_제안서기술평가기준": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_05_p049_c0076",
+      "eval_05_p050_c0079",
+      "eval_05_p050_c0078",
+      "eval_05_p049_c0077"
+    ]
+  },
+  "Ⅶ_제안서평가방법_1_제안서평가방식": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_05_p049_c0076",
+      "eval_05_p002_c0004"
+    ]
+  },
+  "Ⅳ_제안요청내용_2_상세요구사항_이수여부연계": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_05_p004_c0007",
+      "eval_05_p003_c0005"
+    ]
+  },
+  "Ⅰ_사업개요_4_사업기간및사업비": {
+    "question_count": 9,
+    "matched_questions": 6,
+    "example_chunks": [
+      "eval_06_p002_c0003",
+      "eval_06_p004_c0004"
+    ]
+  },
+  "Ⅰ_사업개요_5_사업내용": {
+    "question_count": 12,
+    "matched_questions": 11,
+    "example_chunks": [
+      "eval_06_p004_c0004",
+      "eval_06_p063_c0069",
+      "eval_06_p076_c0075",
+      "eval_06_p077_c0076"
+    ]
+  },
+  "Ⅳ_제안요청내용_데이터입력기능": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_06_p004_c0004"
+    ]
+  },
+  "Ⅱ_추진방안_2_추진전략": {
+    "question_count": 12,
+    "matched_questions": 10,
+    "example_chunks": [
+      "eval_06_p005_c0005",
+      "eval_06_p004_c0004"
+    ]
+  },
+  "Ⅰ_사업개요_2_추진배경및필요성": {
+    "question_count": 3,
+    "matched_questions": 0,
+    "example_chunks": []
+  },
+  "Ⅰ_사업개요_4_사업예산": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_07_p004_c0005",
+      "eval_07_p001_c0001"
+    ]
+  },
+  "Ⅰ_사업개요_5_사업기간": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_07_p003_c0004",
+      "eval_07_p004_c0005",
+      "eval_07_p001_c0001",
+      "eval_07_p031_PSR-003",
+      "eval_07_p005_c0006"
+    ]
+  },
+  "Ⅰ_사업개요_2_사업배경": {
+    "question_count": 3,
+    "matched_questions": 0,
+    "example_chunks": []
+  },
+  "Ⅰ_사업개요_3_사업내용": {
+    "question_count": 9,
+    "matched_questions": 9,
+    "example_chunks": [
+      "eval_07_p004_c0005",
+      "eval_07_p001_c0001"
+    ]
+  },
+  "Ⅱ_추진방안_4_도입장비및과업범위": {
+    "question_count": 3,
+    "matched_questions": 1,
+    "example_chunks": [
+      "eval_07_p005_c0006"
+    ]
+  },
+  "Ⅰ_사업개요_6_기대효과": {
+    "question_count": 6,
+    "matched_questions": 6,
+    "example_chunks": [
+      "eval_07_p001_c0001",
+      "eval_07_p004_c0005"
+    ]
+  },
+  "Ⅱ_추진방안_1_추진목표": {
+    "question_count": 6,
+    "matched_questions": 6,
+    "example_chunks": [
+      "eval_07_p001_c0001",
+      "eval_07_p004_c0005"
+    ]
+  },
+  "Ⅷ_별지서식및별표": {
+    "question_count": 6,
+    "matched_questions": 5,
+    "example_chunks": [
+      "eval_07_p003_c0004",
+      "eval_07_p045_c0058",
+      "eval_07_p050_c0060"
+    ]
+  },
+  "4_제안요청내용_가_제안요청개요": {
+    "question_count": 15,
+    "matched_questions": 6,
+    "example_chunks": [
+      "eval_08_p015_c0016",
+      "eval_08_p013_c0015"
+    ]
+  },
+  "4_제안요청내용_나_상세요구사항_기능요구사항": {
+    "question_count": 6,
+    "matched_questions": 6,
+    "example_chunks": [
+      "eval_08_p092_c0111",
+      "eval_08_p024_c0027",
+      "eval_08_p024_c0026",
+      "eval_08_p021_c0022",
+      "eval_08_p025_c0028",
+      "eval_08_p023_c0025"
+    ]
+  },
+  "3_사업추진방안_라_추진일정": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_08_p124_c0146",
+      "eval_08_p013_c0015",
+      "eval_08_p069_c0081"
+    ]
+  },
+  "4_제안요청내용_나_상세요구사항_성능요구사항": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_08_p026_c0029",
+      "eval_08_p027_c0030",
+      "eval_08_p025_c0028"
+    ]
+  },
+  "4_제안요청내용_나_상세요구사항_보안요구사항": {
+    "question_count": 6,
+    "matched_questions": 5,
+    "example_chunks": [
+      "eval_08_p046_SER-06",
+      "eval_08_p042_SER-01",
+      "eval_08_p043_SER-02",
+      "eval_08_p053_SER-15",
+      "eval_08_p043_c0048",
+      "eval_08_p055_SER-17",
+      "eval_08_p045_c0051"
+    ]
+  },
+  "4_제안요청내용_나_상세요구사항_테스트요구사항": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_08_p037_c0041",
+      "eval_08_p039_TER-04",
+      "eval_08_p040_TER-05",
+      "eval_08_p037_TER-02",
+      "eval_08_p036_c0039"
+    ]
+  },
+  "8_기타사항_가_계약목적물의지식재산권귀속": {
+    "question_count": 6,
+    "matched_questions": 6,
+    "example_chunks": [
+      "eval_08_p078_c0096",
+      "eval_08_p099_c0122",
+      "eval_08_p003_c0004",
+      "eval_08_p003_c0005"
+    ]
+  },
+  "8_기타사항_나_하도급계약사전승인제": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_08_p003_c0005",
+      "eval_08_p099_c0122"
+    ]
+  },
+  "8_기타사항_다_사업수행자의준수사항": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_08_p003_c0005",
+      "eval_08_p099_c0122"
+    ]
+  },
+  "4_제안요청내용_나_상세요구사항_프로젝트지원요구사항": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_08_p002_c0003",
+      "eval_08_p076_PSR-02",
+      "eval_08_p077_PSR-04",
+      "eval_08_p078_PSR-06",
+      "eval_08_p079_c0097"
+    ]
+  },
+  "Ⅰ_사업개요_1_사업개요": {
+    "question_count": 6,
+    "matched_questions": 0,
+    "example_chunks": []
+  },
+  "Ⅳ_제안일반사항_3_입찰참가자격": {
+    "question_count": 9,
+    "matched_questions": 9,
+    "example_chunks": [
+      "eval_09_p066_c0073",
+      "eval_09_p064_PSR-003",
+      "eval_09_p067_c0074",
+      "eval_09_p094_c0106",
+      "eval_09_p002_c0002"
+    ]
+  },
+  "Ⅳ_제안일반사항_4_사업수행조건": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_09_p067_c0074"
+    ]
+  },
+  "Ⅲ_사업세부내용_2_요구사항목록_PMR-015": {
+    "question_count": 3,
+    "matched_questions": 1,
+    "example_chunks": [
+      "eval_09_p059_c0066"
+    ]
+  },
+  "Ⅲ_사업세부내용_2_요구사항목록_MPR-003": {
+    "question_count": 3,
+    "matched_questions": 0,
+    "example_chunks": []
+  },
+  "Ⅲ_사업세부내용_2_요구사항목록_MHR-002": {
+    "question_count": 3,
+    "matched_questions": 2,
+    "example_chunks": [
+      "eval_09_p047_c0050",
+      "eval_09_p029_c0031"
+    ]
+  },
+  "Ⅲ_사업세부내용_2_요구사항목록_PMR-012": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_09_p057_c0063",
+      "eval_09_p010_c0011"
+    ]
+  },
+  "Ⅴ_평가요소및평가방법_1_평가요소및배점기준": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_09_p068_c0076",
+      "eval_09_p070_c0079",
+      "eval_09_p069_c0078",
+      "eval_09_p069_c0077"
+    ]
+  },
+  "Ⅲ_사업세부내용_2_요구사항목록_PMR-016": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_09_p060_PMR-016"
+    ]
+  },
+  "Ⅵ_제안서작성요령_2_제안서작성시유의사항": {
+    "question_count": 3,
+    "matched_questions": 3,
+    "example_chunks": [
+      "eval_09_p075_c0088",
+      "eval_09_p076_c0089",
+      "eval_09_p002_c0002",
+      "eval_09_p077_c0090"
+    ]
+  }
+}

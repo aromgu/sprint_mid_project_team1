@@ -1,0 +1,41 @@
+{
+  "submission_deadline": "2026-08-15T18:00:00+09:00",
+  "inquiry_deadline": "2026-07-28T17:00:00+09:00",
+  "eligibility_summary": "review_required",
+  "risk_counts": {
+    "critical": 2,
+    "warning": 1,
+    "info": 3
+  },
+  "deliverable_progress": {
+    "completed": 3,
+    "total": 8
+  },
+  "action_items": [
+    {
+      "id": "action-001",
+      "title": "사업 참여 의향 확인 공문 발송",
+      "due_date": "2026-07-25T17:00:00+09:00",
+      "priority": "high"
+    },
+    {
+      "id": "action-002",
+      "title": "중소기업 확인서 발급 신청",
+      "due_date": "2026-07-30T17:00:00+09:00",
+      "priority": "high"
+    },
+    {
+      "id": "action-003",
+      "title": "질의서 작성 및 제출",
+      "due_date": "2026-07-28T17:00:00+09:00",
+      "priority": "medium"
+    },
+    {
+      "id": "action-004",
+      "title": "제안서 작성팀 구성 및 역할 분담",
+      "due_date": "2026-08-01T17:00:00+09:00",
+      "priority": "medium"
+    }
+  ],
+  "confidence": 0.91
+}

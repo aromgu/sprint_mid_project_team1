@@ -1,0 +1,93 @@
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans);background:#f5f6f8;color:#1a1a1a}
+.topbar{background:#ffffff;border-bottom:1px solid #e2e4e8;padding:0 24px;height:52px;display:flex;align-items:center;justify-content:space-between}
+.logo{font-size:15px;font-weight:500;color:#1a1a1a;display:flex;align-items:center;gap:8px}
+.logo-icon{width:28px;height:28px;background:#1a56db;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}
+.top-right{display:flex;gap:8px;align-items:center}
+.search{display:flex;align-items:center;gap:6px;border:1px solid #d1d5db;border-radius:6px;padding:6px 12px;background:#fff;font-size:13px;color:#6b7280;width:200px}
+.btn{border:1px solid #d1d5db;border-radius:6px;padding:6px 14px;font-size:13px;background:#fff;color:#374151;cursor:pointer;font-family:var(--font-sans)}
+.btn-primary{background:#1a56db;color:#fff;border-color:#1a56db}
+.filter-bar{background:#fff;border-bottom:1px solid #e2e4e8;padding:0 24px;height:40px;display:flex;align-items:center;gap:6px}
+.chip{border:1px solid #d1d5db;border-radius:20px;padding:3px 12px;font-size:12px;color:#6b7280;background:#fff;cursor:pointer}
+.chip.on{background:#EEF2FF;color:#3730a3;border-color:#a5b4fc}
+.count{font-size:12px;color:#6b7280;margin-left:auto}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:20px 24px}
+.card{background:#fff;border:1px solid #e2e4e8;border-radius:12px;padding:18px;cursor:pointer;transition:border-color .15s}
+.card:hover{border-color:#93c5fd}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
+.card-name{font-size:14px;font-weight:500;color:#111827;line-height:1.4}
+.card-org{font-size:12px;color:#6b7280;margin-top:2px}
+.dday-box{text-align:right;flex-shrink:0}
+.dday{font-size:24px;font-weight:500;line-height:1}
+.dday.red{color:#dc2626}
+.dday.blue{color:#1a56db}
+.dday-lbl{font-size:11px;color:#9ca3af;margin-top:1px}
+.badges{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px}
+.b{border-radius:4px;padding:3px 8px;font-size:11px;font-weight:500}
+.b-red{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+.b-amber{background:#fffbeb;color:#92400e;border:1px solid #fde68a}
+.b-blue{background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe}
+.b-gray{background:#f9fafb;color:#374151;border:1px solid #e5e7eb}
+.prog-row{display:flex;align-items:center;gap:8px}
+.prog-lbl{font-size:11px;color:#9ca3af;width:32px}
+.prog-track{flex:1;height:5px;background:#f3f4f6;border-radius:3px;overflow:hidden}
+.prog-fill{height:100%;border-radius:3px;background:#1a56db}
+.prog-val{font-size:11px;color:#6b7280;width:32px;text-align:right}
+.card-foot{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid #f3f4f6;font-size:11px;color:#9ca3af}
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:4px}
+.dot-g{background:#16a34a}.dot-y{background:#d97706}.dot-r{background:#dc2626}
+.upload-card{background:#fff;border:1.5px dashed #d1d5db;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:168px;cursor:pointer;color:#9ca3af}
+.upload-card:hover{border-color:#93c5fd;color:#6b7280}
+.upload-icon{font-size:28px}
+</style>
+<div class="topbar">
+  <div class="logo"><div class="logo-icon"><i class="ti ti-file-description" style="font-size:15px" aria-hidden="true"></i></div>RFP Action Copilot</div>
+  <div class="top-right">
+    <div class="search"><i class="ti ti-search" style="font-size:14px" aria-hidden="true"></i> 사업명 검색</div>
+    <button class="btn"><i class="ti ti-arrows-sort" style="font-size:13px" aria-hidden="true"></i> 마감순</button>
+    <button class="btn btn-primary"><i class="ti ti-upload" style="font-size:13px" aria-hidden="true"></i> RFP 업로드</button>
+  </div>
+</div>
+<div class="filter-bar">
+  <span style="font-size:12px;color:#6b7280">상태</span>
+  <div class="chip on">전체</div>
+  <div class="chip">검토 중</div>
+  <div class="chip">참여 확정</div>
+  <div class="chip">보류</div>
+  <span class="count">총 3건</span>
+</div>
+<div class="grid">
+  <div class="card">
+    <div class="card-top">
+      <div><div class="card-name">지능형 민원시스템 구축</div><div class="card-org">행정안전부</div></div>
+      <div class="dday-box"><div class="dday red">D-7</div><div class="dday-lbl">제출 마감</div></div>
+    </div>
+    <div class="badges">
+      <span class="b b-red"><i class="ti ti-alert-circle" style="font-size:10px" aria-hidden="true"></i> 실격 2건</span>
+      <span class="b b-amber">감점 1건</span>
+      <span class="b b-blue">확인 3건</span>
+      <span class="b b-gray">검토 중</span>
+    </div>
+    <div class="prog-row"><span class="prog-lbl">제출물</span><div class="prog-track"><div class="prog-fill" style="width:37%"></div></div><span class="prog-val">3/8</span></div>
+    <div class="card-foot"><span><span class="dot dot-y"></span>분석 완료</span><span>질의 D-3</span></div>
+  </div>
+  <div class="card">
+    <div class="card-top">
+      <div><div class="card-name">디지털 예산관리 플랫폼 고도화</div><div class="card-org">기획재정부</div></div>
+      <div class="dday-box"><div class="dday blue">D-21</div><div class="dday-lbl">제출 마감</div></div>
+    </div>
+    <div class="badges">
+      <span class="b b-amber">감점 2건</span>
+      <span class="b b-blue">확인 1건</span>
+      <span class="b b-gray">검토 중</span>
+    </div>
+    <div class="prog-row"><span class="prog-lbl">제출물</span><div class="prog-track"><div class="prog-fill" style="width:60%"></div></div><span class="prog-val">6/10</span></div>
+    <div class="card-foot"><span><span class="dot dot-g"></span>분석 완료</span><span>질의 D-14</span></div>
+  </div>
+  <div class="upload-card">
+    <i class="ti ti-cloud-upload" style="font-size:32px" aria-hidden="true"></i>
+    <span style="font-size:13px;font-weight:500">RFP 파일 업로드</span>
+    <span style="font-size:12px">PDF를 드래그하거나 클릭</span>
+  </div>
+</div>

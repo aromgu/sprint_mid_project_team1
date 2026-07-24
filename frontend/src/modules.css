@@ -1,0 +1,88 @@
+.moduleFlow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.moduleFlow span {
+  background: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+  border-radius: 7px;
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.moduleFlow b { color: #94a3b8; }
+.stageGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.stageCard {
+  position: relative;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  padding: 16px;
+  background: #fff;
+}
+.stageNumber {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #1d4ed8;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+.stageCard h3 { margin: 0 32px 12px 0; font-size: 14px; }
+.stageTags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+.stageTags span { padding: 4px 7px; border-radius: 5px; background: #eff6ff; color: #1e40af; font-size: 10px; }
+.stageCard dl { margin: 0; }
+.stageCard dl div { border-top: 1px solid #e2e8f0; padding: 7px 0; }
+.stageCard dt { color: #64748b; font-size: 10px; margin-bottom: 3px; }
+.stageCard dd { color: #334155; font-size: 11px; line-height: 1.45; margin: 0; }
+.moduleGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.moduleCard {
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  padding: 14px;
+  background: #f8fafc;
+}
+.moduleCardHead { display: flex; align-items: center; gap: 8px; }
+.moduleCardHead span {
+  background: #e0e7ff;
+  color: #3730a3;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.moduleCardHead strong { font-size: 14px; }
+.moduleCard code { display: block; color: #64748b; font-size: 11px; margin: 9px 0; }
+.moduleCard p { font-size: 12px; line-height: 1.55; margin: 0 0 10px; }
+.moduleCard dl { margin: 0; }
+.moduleCard dl div {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 6px;
+  padding: 4px 0;
+  border-top: 1px solid #e2e8f0;
+  font-size: 11px;
+}
+.moduleCard dt { color: #64748b; }
+.moduleCard dd { margin: 0; color: #334155; }
+@media (max-width: 700px) {
+  .stageGrid, .moduleGrid { grid-template-columns: 1fr; }
+  .pipelineTabs { overflow-x: auto; }
+  .pipelineTabs button { white-space: nowrap; }
+}

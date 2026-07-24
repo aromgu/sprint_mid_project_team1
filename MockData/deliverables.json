@@ -1,0 +1,140 @@
+{
+  "items": [
+    {
+      "id": "del-001",
+      "name": "제안서",
+      "format": "PDF + 제본",
+      "quantity": 6,
+      "requires_seal": true,
+      "requires_original": true,
+      "assignee": "김제안",
+      "status": "in_progress",
+      "deadline": "2026-08-15T18:00:00+09:00",
+      "evidence": {
+        "document_name": "행정안전부_RFP_2026_지능형민원시스템구축.pdf",
+        "page_number": 31,
+        "quote": "제안서는 PDF 파일 및 제본 6부를 제출하여야 하며, 대표자 직인이 날인된 원본 1부를 포함하여야 한다.",
+        "score": 0.97
+      }
+    },
+    {
+      "id": "del-002",
+      "name": "사업자등록증 사본",
+      "format": "PDF",
+      "quantity": 1,
+      "requires_seal": false,
+      "requires_original": false,
+      "assignee": "이총무",
+      "status": "completed",
+      "deadline": "2026-08-15T18:00:00+09:00",
+      "evidence": {
+        "document_name": "행정안전부_RFP_2026_지능형민원시스템구축.pdf",
+        "page_number": 32,
+        "quote": "사업자등록증 사본 1부를 제출서류에 포함하여야 한다.",
+        "score": 0.94
+      }
+    },
+    {
+      "id": "del-003",
+      "name": "중소기업 확인서",
+      "format": "원본",
+      "quantity": 1,
+      "requires_seal": true,
+      "requires_original": true,
+      "assignee": null,
+      "status": "pending",
+      "deadline": "2026-08-15T18:00:00+09:00",
+      "evidence": {
+        "document_name": "행정안전부_RFP_2026_지능형민원시스템구축.pdf",
+        "page_number": 32,
+        "quote": "중소기업기본법에 따른 중소기업 확인서 원본 1부를 제출하여야 한다.",
+        "score": 0.91
+      }
+    },
+    {
+      "id": "del-004",
+      "name": "수행 실적 증빙 서류",
+      "format": "PDF + 원본 대조필",
+      "quantity": 3,
+      "requires_seal": true,
+      "requires_original": true,
+      "assignee": "박영업",
+      "status": "in_progress",
+      "deadline": "2026-08-15T18:00:00+09:00",
+      "evidence": {
+        "document_name": "행정안전부_RFP_2026_지능형민원시스템구축.pdf",
+        "page_number": 33,
+        "quote": "최근 3년 이내 수행 실적 증빙 서류(계약서 및 준공서 사본, 원본 대조필) 각 1부씩 최대 3건.",
+        "score": 0.93
+      }
+    },
+    {
+      "id": "del-005",
+      "name": "ISMS 인증서 사본",
+      "format": "PDF",
+      "quantity": 1,
+      "requires_seal": false,
+      "requires_original": false,
+      "assignee": null,
+      "status": "pending",
+      "deadline": "2026-08-15T18:00:00+09:00",
+      "evidence": {
+        "document_name": "행정안전부_RFP_2026_지능형민원시스템구축.pdf",
+        "page_number": 13,
+        "quote": "정보보호 관리체계(ISMS) 인증서 사본을 제안서에 첨부하여야 한다.",
+        "score": 0.89
+      }
+    },
+    {
+      "id": "del-006",
+      "name": "제안 가격표",
+      "format": "별도 봉인 밀봉",
+      "quantity": 1,
+      "requires_seal": true,
+      "requires_original": true,
+      "assignee": "최견적",
+      "status": "pending",
+      "deadline": "2026-08-15T18:00:00+09:00",
+      "evidence": {
+        "document_name": "행정안전부_RFP_2026_지능형민원시스템구축.pdf",
+        "page_number": 34,
+        "quote": "제안 가격표는 제안서와 별도로 밀봉하여 제출하여야 하며, 봉투 외부에 사업명과 업체명을 기재한다.",
+        "score": 0.96
+      }
+    },
+    {
+      "id": "del-007",
+      "name": "기술사 자격증 사본",
+      "format": "PDF",
+      "quantity": 1,
+      "requires_seal": false,
+      "requires_original": false,
+      "assignee": "김제안",
+      "status": "completed",
+      "deadline": "2026-08-15T18:00:00+09:00",
+      "evidence": {
+        "document_name": "행정안전부_RFP_2026_지능형민원시스템구축.pdf",
+        "page_number": 25,
+        "quote": "PM은 정보관리기술사 또는 컴퓨터시스템응용기술사 자격 소지자로 하며, 자격증 사본을 첨부한다.",
+        "score": 0.88
+      }
+    },
+    {
+      "id": "del-008",
+      "name": "제안 발표 PT 파일",
+      "format": "PPT (USB 제출)",
+      "quantity": 1,
+      "requires_seal": false,
+      "requires_original": false,
+      "assignee": null,
+      "status": "pending",
+      "deadline": "2026-08-20T10:00:00+09:00",
+      "evidence": {
+        "document_name": "행정안전부_RFP_2026_지능형민원시스템구축.pdf",
+        "page_number": 36,
+        "quote": "제안 발표는 8월 20일 오전 10시에 진행하며, 발표 자료(PPT)를 USB로 당일 제출한다.",
+        "score": 0.92
+      }
+    }
+  ]
+}

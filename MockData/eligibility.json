@@ -1,0 +1,64 @@
+{
+  "items": [
+    {
+      "id": "elig-001",
+      "title": "소프트웨어 개발업 사업자 등록",
+      "description": "한국표준산업분류 상 소프트웨어 개발 및 공급업(J58221) 또는 컴퓨터 프로그래밍 서비스업(J62010) 등록 필수.",
+      "user_status": "met",
+      "evidence": {
+        "document_name": "행정안전부_RFP_2026_지능형민원시스템구축.pdf",
+        "page_number": 11,
+        "quote": "소프트웨어 개발 및 공급업 또는 컴퓨터 프로그래밍 서비스업으로 사업자 등록된 업체에 한하여 입찰에 참가할 수 있다.",
+        "score": 0.95
+      }
+    },
+    {
+      "id": "elig-002",
+      "title": "최근 3년 이내 공공기관 정보시스템 구축 실적 1건 이상",
+      "description": "2023년 1월 1일 이후 완료된 공공기관 대상 정보시스템 구축 사업 실적 1건 이상 보유. 계약금액 5억 원 이상.",
+      "user_status": "review_required",
+      "evidence": {
+        "document_name": "행정안전부_RFP_2026_지능형민원시스템구축.pdf",
+        "page_number": 12,
+        "quote": "최근 3년 이내 공공기관 대상 정보시스템 구축 실적(계약금액 5억 원 이상) 1건 이상 보유.",
+        "score": 0.96
+      }
+    },
+    {
+      "id": "elig-003",
+      "title": "정보보호 관리체계(ISMS) 인증 보유",
+      "description": "한국인터넷진흥원(KISA) 발급 ISMS 인증서 유효 기간 내 보유.",
+      "user_status": "unchecked",
+      "evidence": {
+        "document_name": "행정안전부_RFP_2026_지능형민원시스템구축.pdf",
+        "page_number": 13,
+        "quote": "정보보호 관리체계(ISMS) 인증을 보유한 업체 우선 평가하며, 인증서 사본을 제안서에 첨부하여야 한다.",
+        "score": 0.89
+      }
+    },
+    {
+      "id": "elig-004",
+      "title": "국가계약법상 입찰 참가 자격 제한 없는 업체",
+      "description": "입찰일 기준 국가계약법 제27조에 따른 입찰 참가 자격 제한을 받지 않아야 함.",
+      "user_status": "met",
+      "evidence": {
+        "document_name": "행정안전부_RFP_2026_지능형민원시스템구축.pdf",
+        "page_number": 11,
+        "quote": "입찰 참가 신청일 현재 국가계약법 제27조에 따른 입찰 참가 자격 제한을 받지 않은 자.",
+        "score": 0.93
+      }
+    },
+    {
+      "id": "elig-005",
+      "title": "GS(Good Software) 인증 제품 활용 계획",
+      "description": "제안에 포함된 소프트웨어 제품 중 GS 인증 제품 활용 계획을 명시해야 함. 필수는 아니나 배점 항목.",
+      "user_status": "unchecked",
+      "evidence": {
+        "document_name": "행정안전부_RFP_2026_지능형민원시스템구축.pdf",
+        "page_number": 22,
+        "quote": "GS 인증 소프트웨어 활용 계획을 제안서에 포함할 경우 기술 평가 시 가점 3점을 부여한다.",
+        "score": 0.82
+      }
+    }
+  ]
+}

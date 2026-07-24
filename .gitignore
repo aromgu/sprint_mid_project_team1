@@ -1,1 +1,56 @@
+# Local secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
 
+# Python/runtime artifacts
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Frontend dependencies and builds
+node_modules/
+dist/
+frontend/node_modules/
+frontend/dist/
+
+# Local observability output
+wandb/
+
+# Local application state and legacy scratch code
+backend/data/
+src/TMP/
+
+# Portable runtime corpus. Raw PDFs and binary indexes are tracked with Git LFS.
+*.pdf
+data/*
+!data/eval/
+!data/eval/**
+!data/raw/
+!data/raw/**
+!data/processed/
+!data/processed/**
+!data/manifests/
+!data/manifests/**
+!data/indexes/
+!data/indexes/**
+data/uploads/
+data/app_corpus_backup_before_eval_v3/
+data/eval_corpus_v3/
+
+# Large local work logs and editor files
+codex_*.md
+log_*.md
+*.swp
+*.swo
+*~
+*:Zone.Identifier
+
+# OS metadata
+.DS_Store
+Thumbs.db

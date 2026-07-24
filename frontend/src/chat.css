@@ -1,0 +1,4 @@
+.suggestions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.suggestions button, .retry { border: 1px solid #bfdbfe; background: #eff6ff; color: #1d4ed8; border-radius: 7px; padding: 7px 10px; font-size: 11px; cursor: pointer; }
+.retry { margin-left: 10px; background: #fff; color: #b91c1c; border-color: #fecaca; }
+.answer p { white-space: pre-line; }

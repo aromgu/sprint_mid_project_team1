@@ -1,0 +1,12 @@
+{
+  "query": "SFR-007 예약 시스템 기능",
+  "document_id": null,
+  "live": false,
+  "measurements_ms": {
+    "service init": 32.28,
+    "bm25 cold": 260.92,
+    "dense cold": 6751.16,
+    "hybrid warm": 107.64,
+    "hybrid repeat": 95.98
+  }
+}

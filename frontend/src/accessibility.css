@@ -1,0 +1,25 @@
+/* High-contrast light theme for the MVP workspace. */
+body { background: #f5f6f8; color: #111827; }
+header { background: #ffffff; color: #111827; border-bottom: 1px solid #d1d5db; }
+header span { color: #4b5563; }
+header .statusbar span { color: #374151; }
+header .statusbar .danger { color: #b91c1c; }
+header .statusbar .warning { color: #b45309; }
+nav { background: #ffffff; color: #111827; border-right: 1px solid #d1d5db; }
+.layout h2 { color: #111827; }
+.doc { color: #374151; border: 1px solid transparent; }
+.doc:hover { background: #eff6ff; border-color: #bfdbfe; }
+.doc.active { background: #2563eb; color: #ffffff; }
+.doc.active small, .doc.active em { color: #dbeafe; }
+.listSearch { background: #ffffff; color: #111827; border-color: #9ca3af; }
+.listSearch::placeholder { color: #6b7280; }
+.listControls select { background: #ffffff; color: #111827; border: 1px solid #9ca3af; }
+.uploadCard { color: #374151; border-color: #9ca3af; background: #f9fafb; }
+.uploadCard small { color: #6b7280; }
+main { background: #ffffff; }
+.toc { background: #f9fafb; color: #374151; }
+.toc button { color: #374151; }
+.toc button:hover { color: #1d4ed8; background: #eff6ff; }
+.evidence { background: #ffffff; }
+.summaryCard, .card, .answer, .timeline { background: #ffffff; }
+.empty, .loading { color: #4b5563; }

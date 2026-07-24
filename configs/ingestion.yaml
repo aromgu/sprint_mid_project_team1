@@ -1,0 +1,21 @@
+paths:
+  csv: "RAG_검증_샘플_파일명_정리_2.csv"
+  pdf_dir: "/home/hyojinkim/work/9_Etc_Labs/pdf"
+  manifest: "data/manifests/documents.json"
+  diagnostics: "data/processed/pdf_diagnostics.json"
+  pages: "data/processed/pages.jsonl"
+  chunks: "data/processed/chunks.jsonl"
+  ocr_results: "data/processed/ocr_pages.jsonl"
+
+manifest:
+  minimum_match_score: 0.72
+
+parser:
+  min_text_chars: 30
+  repeated_margin_ratio: 0.15
+  repeated_line_min_pages: 3
+
+chunking:
+  target_tokens: 700
+  max_tokens: 900
+  overlap_tokens: 80

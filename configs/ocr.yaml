@@ -1,0 +1,19 @@
+paths:
+  manifest: "data/manifests/documents.json"
+  output: "data/processed/ocr_pages.jsonl"
+
+runtime:
+  root: "/tmp/rag_tesseract_root"
+  languages: "kor+eng"
+  dpi: 300
+  psm: 6
+
+pages:
+  - {document_id: "상_1", page: 8, content_kind: "system_diagram", multimodal_review_required: true}
+  - {document_id: "상_1", page: 54, content_kind: "scanned_table", multimodal_review_required: false}
+  - {document_id: "중_2", page: 150, content_kind: "scanned_table", multimodal_review_required: false}
+  - {document_id: "하_2", page: 34, content_kind: "system_diagram", multimodal_review_required: true}
+  - {document_id: "하_3", page: 116, content_kind: "scanned_table", multimodal_review_required: false}
+  - {document_id: "하_3", page: 117, content_kind: "scanned_table", multimodal_review_required: false}
+  - {document_id: "하_3", page: 118, content_kind: "scanned_table", multimodal_review_required: false}
+

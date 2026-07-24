@@ -1,0 +1,123 @@
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans);background:#f5f6f8;color:#1a1a1a;font-size:13px}
+.topbar{background:#fff;border-bottom:1px solid #e2e4e8;padding:0 24px;height:52px;display:flex;align-items:center;justify-content:space-between}
+.tl{display:flex;align-items:center;gap:10px}
+.tl-title{font-size:15px;font-weight:500}
+.int-badge{background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:4px;padding:3px 10px;font-size:11px}
+.tr{display:flex;gap:8px;align-items:center}
+.sel{border:1px solid #d1d5db;border-radius:6px;padding:6px 10px;font-size:12px;background:#fff;color:#374151;font-family:var(--font-sans)}
+.btn-sm{border:1px solid #d1d5db;border-radius:6px;padding:6px 12px;font-size:12px;background:#fff;color:#374151;cursor:pointer;font-family:var(--font-sans)}
+.page{padding:20px 24px;display:flex;flex-direction:column;gap:16px}
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.kpi{background:#fff;border:1px solid #e2e4e8;border-radius:10px;padding:16px;border-top:3px solid #e2e4e8}
+.kpi.good{border-top-color:#16a34a}
+.kpi.warn{border-top-color:#f59e0b}
+.kpi.bad{border-top-color:#dc2626}
+.kpi-lbl{font-size:11px;color:#9ca3af;margin-bottom:6px}
+.kpi-val{font-size:26px;font-weight:500;line-height:1;color:#111827}
+.kpi-val.green{color:#16a34a}
+.kpi-val.amber{color:#d97706}
+.kpi-val.red{color:#dc2626}
+.kpi-sub{font-size:11px;color:#6b7280;margin-top:4px}
+.kpi-trend{font-size:11px;margin-top:4px}
+.tu{color:#16a34a}.td{color:#dc2626}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.panel{background:#fff;border:1px solid #e2e4e8;border-radius:10px;padding:16px}
+.p-lbl{font-size:10px;font-weight:500;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px}
+.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.bar-lbl{font-size:12px;color:#6b7280;width:100px;flex-shrink:0;text-align:right}
+.bar-track{flex:1;height:8px;background:#f3f4f6;border-radius:4px;overflow:hidden}
+.bar-fill{height:100%;border-radius:4px}
+.bar-val{font-size:12px;font-weight:500;width:36px;text-align:right;flex-shrink:0}
+.cfg-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cfg{background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;padding:10px}
+.cfg-k{font-size:10px;color:#9ca3af;margin-bottom:3px}
+.cfg-v{font-size:13px;font-weight:500;color:#111827}
+.note{background:#fffbeb;border:1px solid #fde68a;border-radius:7px;padding:10px 12px;font-size:11px;color:#92400e;line-height:1.5;margin-top:8px}
+.tbl-panel{background:#fff;border:1px solid #e2e4e8;border-radius:10px;padding:16px}
+table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+th{text-align:left;padding:6px 10px;border-bottom:1px solid #f3f4f6;color:#9ca3af;font-weight:500;font-size:11px}
+td{padding:7px 10px;border-bottom:1px solid #f3f4f6;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+td:first-child{color:#111827}
+tr:last-child td{border-bottom:none}
+.sdot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px}
+.dg{background:#16a34a}.dy{background:#d97706}.dr{background:#dc2626}
+</style>
+<div class="topbar">
+  <div class="tl">
+    <span class="tl-title"><i class="ti ti-chart-line" style="margin-right:6px" aria-hidden="true"></i>RAG Evaluation Dashboard</span>
+    <span class="int-badge"><i class="ti ti-lock" style="font-size:10px" aria-hidden="true"></i> 내부 운영팀 전용</span>
+  </div>
+  <div class="tr">
+    <select class="sel"><option>지능형 민원시스템 구축</option><option>예산관리 플랫폼 고도화</option></select>
+    <button class="btn-sm"><i class="ti ti-refresh" style="font-size:12px" aria-hidden="true"></i> 재측정</button>
+    <button class="btn-sm"><i class="ti ti-download" style="font-size:12px" aria-hidden="true"></i> 리포트</button>
+  </div>
+</div>
+<div class="page">
+  <div class="kpi-row">
+    <div class="kpi good">
+      <div class="kpi-lbl">Retrieval hit rate</div>
+      <div class="kpi-val green">91.2%</div>
+      <div class="kpi-sub">테스트 쿼리 43개 기준</div>
+      <div class="kpi-trend tu"><i class="ti ti-arrow-up" style="font-size:11px" aria-hidden="true"></i> +3.1% 이전 대비</div>
+    </div>
+    <div class="kpi good">
+      <div class="kpi-lbl">Evidence score 평균</div>
+      <div class="kpi-val green">0.87</div>
+      <div class="kpi-sub">목표 0.75 이상</div>
+      <div class="kpi-trend tu"><i class="ti ti-arrow-up" style="font-size:11px" aria-hidden="true"></i> +0.04</div>
+    </div>
+    <div class="kpi warn">
+      <div class="kpi-lbl">마감일 추출 정확도</div>
+      <div class="kpi-val amber">82.0%</div>
+      <div class="kpi-sub">목표 90% 이상</div>
+      <div class="kpi-trend td"><i class="ti ti-alert-triangle" style="font-size:11px" aria-hidden="true"></i> 목표 미달</div>
+    </div>
+    <div class="kpi good">
+      <div class="kpi-lbl">평균 응답 시간</div>
+      <div class="kpi-val green">6.3s</div>
+      <div class="kpi-sub">Overview 탭 기준</div>
+      <div class="kpi-trend tu"><i class="ti ti-arrow-down" style="font-size:11px" aria-hidden="true"></i> 1.2s 개선</div>
+    </div>
+  </div>
+  <div class="row2">
+    <div class="panel">
+      <div class="p-lbl">필드별 추출 정확도</div>
+      <div class="bar-row"><span class="bar-lbl">실격 조건</span><div class="bar-track"><div class="bar-fill" style="width:94%;background:#16a34a"></div></div><span class="bar-val" style="color:#16a34a">94%</span></div>
+      <div class="bar-row"><span class="bar-lbl">자격 요건</span><div class="bar-track"><div class="bar-fill" style="width:88%;background:#16a34a"></div></div><span class="bar-val" style="color:#16a34a">88%</span></div>
+      <div class="bar-row"><span class="bar-lbl">제출물 목록</span><div class="bar-track"><div class="bar-fill" style="width:91%;background:#16a34a"></div></div><span class="bar-val" style="color:#16a34a">91%</span></div>
+      <div class="bar-row"><span class="bar-lbl">제출 마감일</span><div class="bar-track"><div class="bar-fill" style="width:82%;background:#f59e0b"></div></div><span class="bar-val" style="color:#d97706">82%</span></div>
+      <div class="bar-row"><span class="bar-lbl">질의 마감일</span><div class="bar-track"><div class="bar-fill" style="width:78%;background:#f59e0b"></div></div><span class="bar-val" style="color:#d97706">78%</span></div>
+      <div class="bar-row"><span class="bar-lbl">요구사항 분류</span><div class="bar-track"><div class="bar-fill" style="width:85%;background:#16a34a"></div></div><span class="bar-val" style="color:#16a34a">85%</span></div>
+      <div class="note"><i class="ti ti-bulb" style="font-size:11px" aria-hidden="true"></i> 마감일 정확도 목표 미달 — 날짜 표기 패턴 다양성 원인 추정. 프롬프트 few-shot 보강 필요.</div>
+    </div>
+    <div class="panel">
+      <div class="p-lbl">파이프라인 설정</div>
+      <div class="cfg-grid">
+        <div class="cfg"><div class="cfg-k">임베딩 모델</div><div class="cfg-v" style="font-size:11px">ko-sroberta-multitask</div></div>
+        <div class="cfg"><div class="cfg-k">LLM 모델</div><div class="cfg-v">GPT-4o-mini</div></div>
+        <div class="cfg"><div class="cfg-k">Chunk target</div><div class="cfg-v">700 tokens</div></div>
+        <div class="cfg"><div class="cfg-k">Chunk max</div><div class="cfg-v">900 tokens</div></div>
+        <div class="cfg"><div class="cfg-k">Overlap</div><div class="cfg-v">80 tokens</div></div>
+        <div class="cfg"><div class="cfg-k">Top-K</div><div class="cfg-v">5</div></div>
+        <div class="cfg"><div class="cfg-k">Temperature</div><div class="cfg-v">0</div></div>
+        <div class="cfg"><div class="cfg-k">표 청킹</div><div class="cfg-v" style="color:#16a34a">활성화</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="tbl-panel">
+    <div class="p-lbl">테스트 케이스별 결과</div>
+    <table>
+      <thead><tr><th style="width:28%">질의</th><th style="width:20%">추출 필드</th><th style="width:13%">Evidence score</th><th style="width:13%">정답 일치</th><th style="width:13%">응답 시간</th><th style="width:13%">상태</th></tr></thead>
+      <tbody>
+        <tr><td>제출 마감일은 언제인가?</td><td>submission_deadline</td><td>0.96</td><td>일치</td><td>4.2s</td><td><span class="sdot dg"></span>통과</td></tr>
+        <tr><td>실격 조건을 모두 나열해</td><td>risks (critical)</td><td>0.94</td><td>일치</td><td>7.1s</td><td><span class="sdot dg"></span>통과</td></tr>
+        <tr><td>질의 마감은 언제야?</td><td>inquiry_deadline</td><td>0.71</td><td>불일치</td><td>5.8s</td><td><span class="sdot dr"></span>실패</td></tr>
+        <tr><td>PM 자격 요건은?</td><td>requirements (personnel)</td><td>0.88</td><td>일치</td><td>6.3s</td><td><span class="sdot dg"></span>통과</td></tr>
+        <tr><td>원본 제출 필요한 서류는?</td><td>deliverables</td><td>0.83</td><td>부분 일치</td><td>8.9s</td><td><span class="sdot dy"></span>경고</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>

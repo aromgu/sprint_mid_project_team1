@@ -1,0 +1,7 @@
+extends: ../search.yaml
+pipeline:
+  retriever: dense
+dense:
+  model: nlpai-lab/KoE5
+  query_prefix: "query: "
+  passage_prefix: "passage: "

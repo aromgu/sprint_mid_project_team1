@@ -1,0 +1,5 @@
+extends: ../search.yaml
+pipeline:
+  retriever: reranked
+reranker:
+  enabled: true

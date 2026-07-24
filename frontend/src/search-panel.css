@@ -1,0 +1,4 @@
+.content>.docSearch{display:flex}
+.content>.searchResults{display:flex}
+.docSearch .answerSearch{background:#2563eb;color:#fff;border-color:#2563eb;white-space:nowrap}.docSearch button{white-space:nowrap}
+.evidenceSearch{display:flex;gap:5px;margin:12px 0 8px}.evidenceSearch input{width:100%;border:1px solid #d1d5db;border-radius:5px;padding:7px;font-size:11px}.evidenceSearch button{border:1px solid #2563eb;background:#2563eb;color:white;border-radius:5px;padding:5px 8px;font-size:10px}.evidenceSearchResults{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}.evidenceSearchResults button{border:1px solid #dbeafe;background:#eff6ff;border-radius:5px;text-align:left;padding:7px;font-size:10px;cursor:pointer}.evidenceSearchResults b{color:#2563eb;margin-right:4px}
