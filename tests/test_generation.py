@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from src.generation.models import ModelAnswer
 from src.generation.openai_generator import OpenAIRAGService
 from src.search.models import SearchChunk, SearchResult
+from scripts.run_golden_v3_answers import rate_limit_retry_delay
 
 
 def fixture_result() -> SearchResult:
@@ -115,3 +116,12 @@ def test_provider_can_be_selected_per_request() -> None:
     assert service.model_name_for("gemini") == "gemini-3.5-flash"
     assert service.resolve_provider("gemini-lite") == "gemini-lite"
     assert service.model_name_for("gemini-lite") == "gemini-3.5-flash-lite"
+
+
+def test_rate_limit_retry_delay_uses_provider_hint() -> None:
+    error = RuntimeError("429 RESOURCE_EXHAUSTED retryDelay: '34s'")
+    assert rate_limit_retry_delay(error, fallback=60) == 35.0
+
+
+def test_non_rate_limit_error_is_not_retried() -> None:
+    assert rate_limit_retry_delay(RuntimeError("invalid response"), fallback=60) is None
