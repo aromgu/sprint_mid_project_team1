@@ -8,8 +8,9 @@ load_dotenv()
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 embeddings_model = os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-small")
-
-
+chroma_collection_name = os.getenv("CHROMA_COLLECTION_NAME", "ai11_policy_naive_v3_metadata_v1_redacted_v1")
+chroma_persist_directory = os.getenv("CHROMA_PERSIST_DIRECTORY", "/home/data/chroma_naive_v3_metadata_v1_redacted_v1")
+print(f"Chroma Collection Name: {chroma_collection_name}") # ai11_policy, ai11_policy_naive_rcts_v2
 # ─────────────────────────────────────────────
 # 1) 임베딩 모델 준비
 # ─────────────────────────────────────────────
@@ -17,11 +18,14 @@ embeddings = OpenAIEmbeddings(model=embeddings_model, api_key=openai_api_key)
 
 # ─────────────────────────────────────────────
 # 2) 기존에 저장된 Chroma DB 불러오기 (읽기 전용으로 사용)
+# ai11_policy : /home/data/chroma
+# ai11_policy_naive_rcts_v2 : /home/data/chroma
+# ai11_policy_naive_v3_metadata_v1_redacted_v1 : /home/data/chroma_naive_v3_metadata_v1_redacted_v1
 # ─────────────────────────────────────────────
 vectorstore = Chroma(
-    collection_name="ai11_policy",  # 저장할 때 썼던 컬렉션 이름과 동일해야 함
+    collection_name=chroma_collection_name,  # ai11_policy, ai11_policy_naive_rcts_v2, ai11_policy_naive_v3_metadata_v1_redacted_v1
     embedding_function=embeddings,  # 쿼리를 벡터로 바꿔줄 임베딩 모델
-    persist_directory="/home/data/chroma",  # 기존 DB가 저장된 폴더 경로
+    persist_directory=chroma_persist_directory,  # 기존 DB가 저장된 폴더 경로 # /home/data/chroma
 )
 
 # ─────────────────────────────────────────────
