@@ -609,6 +609,106 @@ class PreprocessingTests(unittest.TestCase):
         self.assertEqual(result.images[0]["page"], 1)
         self.assertEqual(result.blocks[-1]["retrieval_text"], "")
 
+    def test_pdf_incomplete_table_matrix_preserves_bbox_text(self) -> None:
+        """표 셀 추출량이 너무 적으면 bbox 안 원문을 본문에서 삭제하지 않는다."""
+
+        class FakeTable:
+            bbox = (0.0, 20.0, 100.0, 80.0)
+
+            def extract(self) -> list[list[str | None]]:
+                return [
+                    ["요구사항번호", None, "PMR-003"],
+                    ["세부내용", None, None],
+                ]
+
+        preserved_words = [
+            "하도급계약",
+            "사전승인",
+            "소프트웨어진흥법",
+            "공정거래위원회",
+            "하도급계획서",
+            "공동수급체",
+            "계약상대자",
+            "대금지급",
+            "발주기관",
+            "하수급인",
+            "적정성판단",
+            "평가점수",
+            "계약조건",
+            "사업수행",
+            "지급내역",
+            "증빙자료",
+            "관련법률",
+            "승인절차",
+        ]
+
+        class FakePage:
+            height = 100.0
+            images: list[dict[str, Any]] = []
+
+            def find_tables(self) -> list[FakeTable]:
+                return [FakeTable()]
+
+            def extract_words(self, **_: Any) -> list[dict[str, Any]]:
+                return [
+                    {
+                        "text": text,
+                        "x0": 10.0,
+                        "x1": 90.0,
+                        "top": 25.0 + index * 3,
+                        "bottom": 27.0 + index * 3,
+                    }
+                    for index, text in enumerate(preserved_words)
+                ]
+
+            def extract_text(self) -> str:
+                return " ".join(preserved_words)
+
+        class FakePdf:
+            pages = [FakePage()]
+
+            def __enter__(self) -> FakePdf:
+                return self
+
+            def __exit__(self, *_: Any) -> None:
+                return None
+
+        source = self.source("incomplete-table.pdf")
+        result = preprocess_document(
+            source,
+            pdfplumber_module=SimpleNamespace(open=lambda _: FakePdf()),
+        )
+
+        body_text = " ".join(
+            block["retrieval_text"]
+            for block in result.blocks
+            if block["block_type"] == "text"
+        )
+        self.assertIn("하도급계약", body_text)
+        self.assertIn("사업수행", body_text)
+        self.assertIn("pdf_table_text_fallback", result.document["quality_flags"])
+        self.assertEqual(result.document["pdf_table_text_fallback_count"], 1)
+        self.assertEqual(result.document["pdf_table_text_fallback_page_count"], 1)
+        table_block = next(
+            block for block in result.blocks if block["block_type"] == "table"
+        )
+        self.assertIn("pdf_table_text_fallback", table_block["quality_flags"])
+        self.assertEqual(table_block["index_policy"], "exclude")
+        self.assertEqual(
+            table_block["index_reason"],
+            "incomplete_pdf_table_replaced_by_bbox_text",
+        )
+        fallback_block = next(
+            block
+            for block in result.blocks
+            if block["block_type"] == "text"
+            and "pdf_table_text_fallback" in block["quality_flags"]
+        )
+        self.assertEqual(
+            fallback_block["index_reason"],
+            "incomplete_pdf_table_bbox_text",
+        )
+
     def test_pdf_page_numbers_start_at_one(self) -> None:
         """PDF 첫 페이지와 둘째 페이지는 각각 1과 2로 기록된다."""
 

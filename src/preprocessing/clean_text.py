@@ -29,6 +29,8 @@ from src.loader.load_documents import SourceDocument, sha256_file
 SCHEMA_VERSION = "rfp_structured_preprocessing_v2"
 HWP_FILE_TYPES = frozenset({"hwp", "hwpx"})
 PDF_FILE_TYPE = "pdf"
+PDF_TABLE_TEXT_COVERAGE_THRESHOLD = 0.8
+PDF_TABLE_TEXT_FALLBACK_MIN_CHARS = 40
 
 # 표가 실제 업무 내용을 담는지 판단할 때 사용하는 대표적인 RFP 표현이다.
 TABLE_CONTENT_SIGNAL = re.compile(
@@ -1100,6 +1102,39 @@ def pdf_matrix_text(matrix: Sequence[Sequence[Any]]) -> str:
     return normalize_text("\n".join(lines))
 
 
+def comparable_text_char_count(value: str | None) -> int:
+    """공백·문장부호를 제외한 글자 수로 PDF 추출량을 비교한다."""
+    return sum(character.isalnum() for character in normalize_text(value))
+
+
+def pdf_table_text_coverage(
+    matrix: Sequence[Sequence[Any]],
+    words: Sequence[dict[str, Any]],
+    bbox: Sequence[float],
+) -> float | None:
+    """표 영역 원문 대비 셀 행렬이 보존한 텍스트 비율을 추정한다.
+
+    pdfplumber가 병합 셀의 테두리는 찾았지만 셀 본문을 놓치면 표 영역 전체의
+    단어가 본문에서도 제거될 수 있다. 작은 표는 글자 수 차이에 민감하므로
+    충분한 원문이 있는 표만 검사한다.
+    """
+    inside_text: list[str] = []
+    for word in words:
+        center_x = (float(word.get("x0", 0) or 0) + float(word.get("x1", 0) or 0)) / 2
+        center_y = (
+            float(word.get("top", 0) or 0) + float(word.get("bottom", 0) or 0)
+        ) / 2
+        if point_in_bbox(center_x, center_y, bbox):
+            inside_text.append(str(word.get("text") or ""))
+
+    source_chars = comparable_text_char_count(" ".join(inside_text))
+    if source_chars < PDF_TABLE_TEXT_FALLBACK_MIN_CHARS:
+        return None
+
+    extracted_chars = comparable_text_char_count(pdf_matrix_text(matrix))
+    return min(extracted_chars / source_chars, 1.0)
+
+
 def render_pdf_table(matrix: Sequence[Sequence[Any]]) -> str:
     """PDF 표 행렬을 GFM Markdown으로 만든다."""
     rows = [
@@ -1209,6 +1244,8 @@ def process_pdf_document(
     table_error_count = 0
     word_error_count = 0
     fallback_text_error_count = 0
+    table_text_fallback_count = 0
+    table_text_fallback_pages: set[int] = set()
     document_quality_flags: set[str] = set()
 
     with pdfplumber_module.open(source_path) as pdf:
@@ -1220,22 +1257,16 @@ def process_pdf_document(
                 table_error_count += 1
                 document_quality_flags.add("pdf_table_detection_failed")
 
-            prepared_tables: list[tuple[Any, Sequence[Sequence[Any]]]] = []
+            extracted_tables: list[tuple[Any, Sequence[Sequence[Any]]]] = []
             for detected_table in detected_tables:
                 try:
-                    prepared_tables.append(
+                    extracted_tables.append(
                         (detected_table, detected_table.extract() or [])
                     )
                 except Exception:
                     # 추출 실패 표의 영역에서 본문 단어를 제거하면 내용이 사라진다.
                     table_error_count += 1
                     document_quality_flags.add("pdf_table_extraction_failed")
-
-            table_bboxes = [
-                tuple(map(float, detected_table.bbox))
-                for detected_table, matrix in prepared_tables
-                if pdf_matrix_text(matrix)
-            ]
 
             try:
                 words = list(
@@ -1250,12 +1281,33 @@ def process_pdf_document(
                 word_error_count += 1
                 document_quality_flags.add("pdf_word_extraction_failed")
 
+            prepared_tables: list[
+                tuple[Any, Sequence[Sequence[Any]], float | None, bool]
+            ] = []
+            for detected_table, matrix in extracted_tables:
+                bbox = tuple(map(float, detected_table.bbox))
+                coverage = pdf_table_text_coverage(matrix, words, bbox)
+                use_text_fallback = (
+                    coverage is not None
+                    and coverage < PDF_TABLE_TEXT_COVERAGE_THRESHOLD
+                )
+                if use_text_fallback:
+                    table_text_fallback_count += 1
+                    table_text_fallback_pages.add(page_number)
+                    document_quality_flags.add("pdf_table_text_fallback")
+                prepared_tables.append(
+                    (detected_table, matrix, coverage, use_text_fallback)
+                )
+
             if words or prepared_tables:
                 # 좌표 기반 읽기 순서는 다단 문서에서 완벽하지 않을 수 있음을 표시한다.
                 document_quality_flags.add("pdf_coordinate_order_heuristic")
 
-            # 표 안의 단어를 본문에서 빼 같은 문장이 두 번 임베딩되지 않게 한다.
+            # 완전한 표 안의 단어는 표 행렬에 이미 있으므로 본문에서 제외한다.
+            # 불완전한 표의 단어는 표별 fallback 블록으로 묶어 긴 셀 내용과
+            # 다단 페이지의 열 경계를 함께 보존한다.
             outside_words: list[dict[str, Any]] = []
+            fallback_words_by_table: dict[int, list[dict[str, Any]]] = defaultdict(list)
             for word in words:
                 center_x = (
                     float(word.get("x0", 0) or 0) + float(word.get("x1", 0) or 0)
@@ -1263,28 +1315,71 @@ def process_pdf_document(
                 center_y = (
                     float(word.get("top", 0) or 0) + float(word.get("bottom", 0) or 0)
                 ) / 2
-                if not any(
-                    point_in_bbox(center_x, center_y, bbox) for bbox in table_bboxes
-                ):
+                fallback_matches: list[tuple[float, int]] = []
+                inside_trusted_table = False
+                for table_index, (
+                    detected_table,
+                    matrix,
+                    _,
+                    use_text_fallback,
+                ) in enumerate(prepared_tables):
+                    bbox = tuple(map(float, detected_table.bbox))
+                    if not point_in_bbox(center_x, center_y, bbox):
+                        continue
+                    if use_text_fallback:
+                        area = max(bbox[2] - bbox[0], 0) * max(bbox[3] - bbox[1], 0)
+                        fallback_matches.append((area, table_index))
+                    elif pdf_matrix_text(matrix):
+                        inside_trusted_table = True
+
+                if fallback_matches:
+                    # 겹친 표에서는 더 구체적인 작은 영역에 단어를 한 번만 배정한다.
+                    _, selected_table_index = min(fallback_matches)
+                    fallback_words_by_table[selected_table_index].append(word)
+                elif not inside_trusted_table:
                     outside_words.append(word)
 
             # (세로 위치, 같은 위치 우선순위, 종류, 값, 품질 플래그)
             events: list[tuple[float, int, str, Any, list[str]]] = []
             for top, line_text in group_pdf_words_into_lines(outside_words):
                 events.append((top, 0, "text", line_text, []))
-            for detected_table, matrix in prepared_tables:
+            for table_index, (
+                detected_table,
+                matrix,
+                _,
+                use_text_fallback,
+            ) in enumerate(prepared_tables):
+                table_flags = ["pdf_table_text_fallback"] if use_text_fallback else []
+                table_top = float(detected_table.bbox[1])
                 events.append(
                     (
-                        float(detected_table.bbox[1]),
+                        table_top,
                         1,
                         "table",
                         (detected_table, matrix),
-                        [],
+                        table_flags,
                     )
                 )
+                if use_text_fallback:
+                    fallback_lines = group_pdf_words_into_lines(
+                        fallback_words_by_table[table_index]
+                    )
+                    fallback_text = normalize_text(
+                        "\n".join(text for _, text in fallback_lines)
+                    )
+                    if fallback_text:
+                        events.append(
+                            (
+                                table_top,
+                                2,
+                                "text",
+                                fallback_text,
+                                table_flags,
+                            )
+                        )
             for image in getattr(page, "images", []) or []:
                 bbox = pdf_image_bbox(image, float(getattr(page, "height", 0) or 0))
-                events.append((bbox[1], 2, "picture", (image, bbox), []))
+                events.append((bbox[1], 3, "picture", (image, bbox), []))
 
             # 단어 추출이 실패하면 표가 있더라도 본문 전체를 보존한다. 이 경우
             # 표 텍스트가 일부 겹칠 수 있으므로 품질 플래그로 반드시 드러낸다.
@@ -1318,9 +1413,12 @@ def process_pdf_document(
                     display_content = normalize_text(str(payload))
                     retrieval_text = display_content
                     index_policy = "index" if retrieval_text else "exclude"
-                    index_reason = (
-                        "pdf_page_text" if retrieval_text else "empty_pdf_text"
-                    )
+                    if "pdf_table_text_fallback" in quality_flags:
+                        index_reason = "incomplete_pdf_table_bbox_text"
+                    else:
+                        index_reason = (
+                            "pdf_page_text" if retrieval_text else "empty_pdf_text"
+                        )
                     detected_heading = heading_from_text(retrieval_text)
                     if detected_heading:
                         section_path = detected_heading
@@ -1332,6 +1430,9 @@ def process_pdf_document(
                     display_content = render_pdf_table(matrix)
                     retrieval_text = pdf_matrix_text(matrix)
                     table_class, index_policy, index_reason = classify_pdf_table(matrix)
+                    if "pdf_table_text_fallback" in quality_flags:
+                        index_policy = "exclude"
+                        index_reason = "incomplete_pdf_table_replaced_by_bbox_text"
                     render_mode = "gfm"
                     block_type = "table"
                     if table_class != "content":
@@ -1485,6 +1586,8 @@ def process_pdf_document(
         "pdf_table_error_count": table_error_count,
         "pdf_word_extraction_error_count": word_error_count,
         "pdf_fallback_text_error_count": fallback_text_error_count,
+        "pdf_table_text_fallback_count": table_text_fallback_count,
+        "pdf_table_text_fallback_page_count": len(table_text_fallback_pages),
         "quality_flags": sorted(document_quality_flags),
     }
     return blocks, tables, images, stats
@@ -1772,6 +1875,10 @@ def preprocess_document(
             "pdf_word_extraction_error_count", 0
         ),
         "pdf_fallback_text_error_count": stats.get("pdf_fallback_text_error_count", 0),
+        "pdf_table_text_fallback_count": stats.get("pdf_table_text_fallback_count", 0),
+        "pdf_table_text_fallback_page_count": stats.get(
+            "pdf_table_text_fallback_page_count", 0
+        ),
         "text_storage": "in_memory_only",
         "image_storage": "metadata_only_no_payload",
         "quality_flags": sorted(quality_flags),

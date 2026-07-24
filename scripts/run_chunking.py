@@ -31,9 +31,9 @@ from src.chunking.split_text import (
 
 DEFAULT_DOCUMENTS_PATH = Path("/home/data/advanced/input_v1/documents_v2.jsonl")
 DEFAULT_BLOCKS_PATH = Path("/home/data/advanced/input_v1/blocks_v2.jsonl")
-DEFAULT_OUTPUT_PATH = Path("/home/data/advanced/chunks/chunks_naive_rcts_v2.jsonl.gz")
+DEFAULT_OUTPUT_PATH = Path("/home/data/advanced/chunks/chunks_naive_rcts_v3.jsonl.gz")
 DEFAULT_REPORT_PATH = Path(
-    "/home/data/advanced/reports/chunks_naive_rcts_v2_report.json"
+    "/home/data/advanced/reports/chunks_naive_rcts_v3_report.json"
 )
 INLINE_BREAK_TAG = re.compile(r"<br\s*/?>", re.IGNORECASE)
 STRUCTURAL_HTML_TAG = re.compile(
