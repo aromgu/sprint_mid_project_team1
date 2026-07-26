@@ -342,9 +342,19 @@ def _pdf_table_formats(
                     matrix = detected_table.extract() or []
                 except Exception:
                     continue
+                try:
+                    cell_bboxes = [
+                        tuple(cell)
+                        for cell in (getattr(detected_table, "cells", None) or [])
+                        if cell is not None
+                    ]
+                except Exception:
+                    cell_bboxes = None
                 table_number += 1
                 table_id = f"{source.source_id}:pdf:T{table_number:06d}"
-                formats[table_id] = build_pdf_table_formats(matrix, table_id)
+                formats[table_id] = build_pdf_table_formats(
+                    matrix, table_id, cell_bboxes=cell_bboxes
+                )
     return formats
 
 
