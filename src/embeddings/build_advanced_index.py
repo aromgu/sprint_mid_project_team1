@@ -27,6 +27,15 @@ from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 from rank_bm25 import BM25Okapi
 
+# 토큰 상한은 청킹 계약을 그대로 따른다. 값을 이 파일에 복사해 두면 청킹만
+# 바뀌었을 때 조용히 어긋나므로(예: 표 예외 도입) 단일 출처에서 가져온다.
+from src.chunking.advanced_chunking import (
+    DEFAULT_MAX_TOKENS as TEXT_MAX_TOKENS,
+)
+from src.chunking.advanced_chunking import (
+    DEFAULT_TABLE_MAX_TOKENS as TABLE_MAX_TOKENS,
+)
+
 DEFAULT_INPUT_PATH = Path(
     "/home/data/advanced/chunks_kss_512_51_v4/chunks_advanced_v4.jsonl.gz"
 )
@@ -78,8 +87,32 @@ ADVANCED_V2_INPUT_CONTRACT = AdvancedInputContract(
     ),
     corpus_id="advanced_v2",
 )
+# PDF 표 병합 보존, 표 통짜 유지(table_max_tokens), Markdown 원문 기호 보존을
+# 적용해 다시 만든 청크다. 표를 512 경계로 쪼개며 헤더를 반복하지 않으므로 표
+# 청크 수와 전체 토큰 수가 줄었다. 이전 계약은 과거 실행 재현용으로 남긴다.
+ADVANCED_V2_TABLE_WHOLE_INPUT_CONTRACT = AdvancedInputContract(
+    name="advanced_v2_table_merge_whole",
+    input_sha256="2d102204947a61ea4f77b96a53cee2e6ecfc87cc9bf4226e14bd3056029326b0",
+    chunk_count=54_314,
+    document_count=98,
+    total_tokens=12_002_390,
+    text_chunk_count=41_830,
+    table_chunk_count=12_484,
+    bm25_chunk_count=41_830,
+    bm25_token_total=797_788,
+    schema_version="rfp_advanced_chunk_v2",
+    strategy_id=(
+        "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_"
+        "no_text_newline_cl100k_base_512_51_v2"
+    ),
+    corpus_id="advanced_v2",
+)
 INPUT_CONTRACTS_BY_SHA256 = {
-    ADVANCED_V2_INPUT_CONTRACT.input_sha256: ADVANCED_V2_INPUT_CONTRACT
+    contract.input_sha256: contract
+    for contract in (
+        ADVANCED_V2_INPUT_CONTRACT,
+        ADVANCED_V2_TABLE_WHOLE_INPUT_CONTRACT,
+    )
 }
 
 
@@ -352,9 +385,14 @@ def audit_advanced_input(
         if content_type not in {"text", "table"}:
             raise ValueError(f"content_type 오류: {chunk_id}={content_type}")
 
+        # 표는 같은 표를 쪼개지 않기 위해 512 예외를 받는다. 상한은 임베딩
+        # 모델 입력 한계이므로 이 검사가 잘못된 API 호출도 함께 막는다.
         token_count = row.get("token_count")
-        if not isinstance(token_count, int) or not 1 <= token_count <= 512:
-            raise ValueError(f"token_count 범위 오류: {chunk_id}={token_count}")
+        max_tokens = TABLE_MAX_TOKENS if content_type == "table" else TEXT_MAX_TOKENS
+        if not isinstance(token_count, int) or not 1 <= token_count <= max_tokens:
+            raise ValueError(
+                f"token_count 범위 오류: {chunk_id}={token_count} (상한 {max_tokens})"
+            )
         if row.get("token_count_basis") != "embedding_text":
             raise ValueError(f"token_count_basis 오류: {chunk_id}")
         if row.get("vectorize_field") != "embedding_text":
