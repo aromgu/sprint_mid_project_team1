@@ -45,8 +45,32 @@ TABLE_CONTENT_SIGNAL = re.compile(
 TOP_HEADING = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|제\s*\d+\s*장)\s*[.)]?\s*.+$")
 SAFE_HTTP_URL = re.compile(r"(?i)\bhttps?(?:\\:|:)//[^;\s\"'<>]+")
 DATA_URI = re.compile(r"\bdata:[^\s,]*,", re.IGNORECASE)
+# Markdown 표시 내용에 남으면 "표는 Markdown으로만 표현한다"는 계약을 깨는
+# 태그 이름이다. split_text와 advanced_chunking의 가드까지 모두 포함한다.
+HTML_TABLE_TAG_NAMES = (
+    "table",
+    "thead",
+    "tbody",
+    "caption",
+    "tr",
+    "th",
+    "td",
+    "img",
+    "p",
+    "li",
+    "br",
+)
 HTML_TABLE_TAG = re.compile(
-    r"</?(?:table|caption|tr|th|td|img|p|li|br)\b",
+    r"</?(?:" + "|".join(HTML_TABLE_TAG_NAMES) + r")\b",
+    re.IGNORECASE,
+)
+# Markdown에서 중화할 태그다. 가드 대상에 더해, 렌더링될 경우 실행될 수 있는
+# 태그도 포함해 이전 동작의 안전성을 유지한다.
+MARKDOWN_UNSAFE_TAG_NAMES = HTML_TABLE_TAG_NAMES + ("script", "style", "iframe")
+# 위 태그로 읽히는 조각만 골라낸다. ``<`` 뒤가 태그 이름이 아니면 원문 기호이므로
+# 건드리지 않는다. 닫는 ``>``가 없어도 가드 정규식에는 걸리므로 함께 잡는다.
+MARKDOWN_HTML_TAG = re.compile(
+    r"</?(?:" + "|".join(MARKDOWN_UNSAFE_TAG_NAMES) + r")\b[^<>]*>?",
     re.IGNORECASE,
 )
 
@@ -424,15 +448,30 @@ def classify_table(block: Any) -> tuple[str, str, str]:
     return "layout", "flatten", "layout_table_text_flattened"
 
 
-def escape_markdown_cell(value: str) -> str:
-    """표 셀을 HTML 없이 한 줄로 만들고 Markdown 구분자를 이스케이프한다."""
-    single_line = re.sub(r"\n+", " / ", normalize_text(value))
-    return (
-        single_line.replace("\\", "\\\\")
-        .replace("|", r"\|")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
+def neutralize_html_table_tags(value: str) -> str:
+    """HTML 표 태그로 읽히는 조각만 엔티티로 바꾼다.
+
+    Markdown 표시 내용에는 표 HTML이 남으면 안 된다. 그렇다고 모든 ``<``·``>``를
+    엔티티로 바꾸면 ``공통 > 기준정보관리``나 ``<H/W 공통 요구사항>`` 같은 원문
+    기호까지 ``&gt;``로 바뀌어 임베딩 본문이 원문과 달라진다. 그래서 실제 표
+    태그 이름이 뒤따르는 경우에만 이스케이프한다.
+    """
+    return MARKDOWN_HTML_TAG.sub(
+        lambda match: match.group(0).replace("<", "&lt;").replace(">", "&gt;"),
+        value,
     )
+
+
+def escape_markdown_cell(value: str) -> str:
+    """표 셀을 한 줄로 만들고 Markdown 구분자만 이스케이프한다.
+
+    ``>``·``<``·``&``는 원문 그대로 남긴다. ``table_markdown``은 Dense 임베딩
+    본문이라 HTML 엔티티가 섞이면 원문과 다른 텍스트가 임베딩된다. HTML
+    이스케이프는 ``table_html`` 전용이다(table_formats._escape_html_text).
+    """
+    single_line = re.sub(r"\n+", " / ", normalize_text(value))
+    escaped = single_line.replace("\\", "\\\\").replace("|", r"\|")
+    return neutralize_html_table_tags(escaped)
 
 
 def picture_alt(block: Any, picture_id: str) -> str:
@@ -446,12 +485,8 @@ def render_picture_placeholder(block: Any, picture_id: str) -> str:
     """이미지 바이트 대신 안정적인 ``image://`` 참조만 만든다."""
     uri = f"image://{picture_id}"
     alt = picture_alt(block, picture_id)
-    escaped_alt = (
-        alt.replace("\\", "\\\\")
-        .replace("[", r"\[")
-        .replace("]", r"\]")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
+    escaped_alt = neutralize_html_table_tags(
+        alt.replace("\\", "\\\\").replace("[", r"\[").replace("]", r"\]")
     )
     return f"![{escaped_alt}]({uri})"
 
@@ -587,7 +622,7 @@ def render_table_gfm(
     sections: list[str] = ["\n".join(lines)]
     caption = caption_text(block)
     if caption:
-        safe_caption = caption.replace("<", "&lt;").replace(">", "&gt;")
+        safe_caption = neutralize_html_table_tags(caption)
         sections[0] = f"{safe_caption}\n\n{sections[0]}"
 
     for nested in direct_nested_tables(block):
