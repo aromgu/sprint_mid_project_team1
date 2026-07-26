@@ -13,7 +13,9 @@ Naive RAG의 Recursive 512/102 코드와 결과를 변경하지 않고, 다음 �
 * PDF 페이지 끝의 ``- 123 -`` 표식은 임베딩 본문에서 항상 제외하고,
   원본 블록과 실제 PDF ``page`` metadata로만 보존한다.
 * 표는 KSS·Kiwi에서 제외하고 ``table_markdown``만 Dense 본문으로 쓴다.
-* 표가 크면 행 경계로 나누고 뒤 part에 헤더를 반복한다.
+* 표는 512 상한 예외로 같은 표를 여러 청크로 쪼개지 않는다. 임베딩 모델
+  입력 상한(``table_max_tokens``, 기본 8,191 토큰)을 넘는 표만 행 경계로
+  나누고 뒤 part에 헤더를 반복한다.
 * 일반 텍스트 청크만 Kiwi 형태소에서 조사(J*)·어미(E*)를 제외해 별도
   ``bm25_tokens``에 저장한다.
 * 파일명·위치·유형은 metadata로 보존하되 임베딩 본문에 prefix로 붙이지 않는다.
@@ -55,6 +57,10 @@ INPUT_SCHEMA_VERSION = "rfp_advanced_preprocessing_v1"
 DEFAULT_MODEL = "text-embedding-3-small"
 DEFAULT_ENCODING = "cl100k_base"
 DEFAULT_MAX_TOKENS = 512
+# 표는 512 상한 예외다. 같은 표가 여러 청크로 쪼개지지 않도록 하나의 청크로
+# 유지하되, text-embedding-3-small의 입력 상한(8,191 토큰)까지만 허용한다.
+# 이 상한을 넘는 극히 드문 표만 기존 행 단위 분할·헤더 반복 fallback을 쓴다.
+DEFAULT_TABLE_MAX_TOKENS = 8191
 DEFAULT_OVERLAP_TOKENS = 51
 DEFAULT_MIN_TAIL_TOKENS = DEFAULT_OVERLAP_TOKENS
 EXPECTED_KSS_VERSION = "6.0.6"
@@ -126,6 +132,7 @@ class AdvancedChunkConfig:
     """Advanced 512/51 실험을 재현하기 위한 설정이다."""
 
     max_tokens: int = DEFAULT_MAX_TOKENS
+    table_max_tokens: int = DEFAULT_TABLE_MAX_TOKENS
     overlap_tokens: int = DEFAULT_OVERLAP_TOKENS
     min_tail_tokens: int = DEFAULT_MIN_TAIL_TOKENS
     model_name: str = DEFAULT_MODEL
@@ -281,6 +288,8 @@ def validate_advanced_config(config: AdvancedChunkConfig) -> None:
     """토큰 상한과 overlap이 앞으로 진행 가능한 값인지 확인한다."""
     if config.max_tokens <= 0:
         raise ValueError("max_tokens는 양수여야 합니다")
+    if config.table_max_tokens < config.max_tokens:
+        raise ValueError("table_max_tokens는 max_tokens 이상이어야 합니다")
     if not 0 <= config.overlap_tokens < config.max_tokens:
         raise ValueError("overlap_tokens는 0 이상이고 max_tokens보다 작아야 합니다")
     if not 0 <= config.min_tail_tokens <= config.max_tokens:
@@ -1132,9 +1141,15 @@ def build_advanced_chunk_record(
         raise ValueError("청크에 이미지 payload 또는 Base64가 포함됐습니다")
     selected_raw_text = embedding_text if raw_text is None else raw_text
     token_count = len(codec.encode(embedding_text))
-    if token_count > config.max_tokens:
+    # 표는 같은 표를 여러 청크로 쪼개지 않도록 512 상한 예외를 받는다.
+    # 임베딩 모델 입력 상한(config.table_max_tokens)까지만 허용한다.
+    applicable_max_tokens = (
+        config.table_max_tokens if content_type == "table" else config.max_tokens
+    )
+    if token_count > applicable_max_tokens:
         raise ValueError(
-            f"Advanced 청크가 토큰 상한을 넘었습니다: {token_count} > {config.max_tokens}"
+            "Advanced 청크가 토큰 상한을 넘었습니다: "
+            f"{token_count} > {applicable_max_tokens}"
         )
     is_text = content_type == "text"
     if is_text and kiwi_tokenizer is None:
@@ -1158,7 +1173,7 @@ def build_advanced_chunk_record(
         "chunk_id": None,
         "chunk_order": None,
         "strategy_id": config.strategy_id,
-        "chunk_size_tokens": config.max_tokens,
+        "chunk_size_tokens": applicable_max_tokens,
         "chunk_overlap_target_tokens": config.overlap_tokens,
         "min_tail_tokens": config.min_tail_tokens,
         "overlap_actual_tokens": overlap_actual_tokens,
@@ -1426,7 +1441,7 @@ def _fallback_table_segment_parts(
             source_text,
             _one_cell_table,
             codec,
-            config.max_tokens,
+            config.table_max_tokens,
         )
     ]
 
@@ -1441,7 +1456,7 @@ def _chunk_table_segment_texts(
     source_text = "\n".join(
         [*segment.context_lines, *segment.header_lines, *segment.data_rows]
     )
-    if len(codec.encode(header)) > config.max_tokens:
+    if len(codec.encode(header)) > config.table_max_tokens:
         return [
             {
                 "text": text,
@@ -1463,7 +1478,7 @@ def _chunk_table_segment_texts(
     # 문자열 모양으로 추정하면 escape된 ``|`` 때문에 오판할 수 있다.
     rows: list[tuple[int, str, bool]] = []
     for row_number, row in enumerate(segment.data_rows, start=1):
-        if len(codec.encode(f"{header}\n{row}")) <= config.max_tokens:
+        if len(codec.encode(f"{header}\n{row}")) <= config.table_max_tokens:
             rows.append((row_number, row, False))
             continue
 
@@ -1479,7 +1494,7 @@ def _chunk_table_segment_texts(
                 row,
                 render,
                 codec,
-                config.max_tokens,
+                config.table_max_tokens,
             )
         except ValueError:
             return [
@@ -1527,12 +1542,12 @@ def _chunk_table_segment_texts(
             candidate = "\n".join(
                 [header, *(row for _, row, _ in [*selected, rows[cursor]])]
             )
-            if len(codec.encode(candidate)) > config.max_tokens:
+            if len(codec.encode(candidate)) > config.table_max_tokens:
                 break
             selected.append(rows[cursor])
             cursor += 1
         if not selected:
-            raise ValueError("표 행을 512토큰 예산 안에 넣지 못했습니다")
+            raise ValueError("표 행을 table_max_tokens 예산 안에 넣지 못했습니다")
         row_numbers = [row_number for row_number, _, _ in selected]
         oversized = any(is_oversized for _, _, is_oversized in selected)
         parts.append(
@@ -1871,7 +1886,13 @@ def validate_advanced_chunks(
         raw_text_matches_source_stream(chunk) for chunk in chunks
     )
     token_counts_valid = all(
-        1 <= int(chunk["token_count"]) <= config.max_tokens
+        1
+        <= int(chunk["token_count"])
+        <= (
+            config.table_max_tokens
+            if chunk.get("content_type") == "table"
+            else config.max_tokens
+        )
         and int(chunk["token_count"]) == len(codec.encode(chunk["embedding_text"]))
         for chunk in chunks
     )
@@ -2181,7 +2202,7 @@ def validate_advanced_chunks(
         "text_raw_matches_source_stream_span": raw_text_source_valid,
         "text_streams_are_contiguously_covered": bool(text_stream_coverage_valid),
         "table_chunks_match_source_markdown": bool(table_source_contract_valid),
-        "token_counts_and_512_limit_are_valid": token_counts_valid,
+        "token_counts_are_within_per_type_limits": token_counts_valid,
         "text_newlines_are_excluded_from_embedding_only": bool(
             embedding_text_contract_valid
         ),
@@ -2313,6 +2334,7 @@ def build_advanced_summary(
         "corpus_id": CORPUS_ID,
         "strategy_id": config.strategy_id,
         "max_tokens": config.max_tokens,
+        "table_max_tokens": config.table_max_tokens,
         "overlap_target_tokens": config.overlap_tokens,
         "min_tail_tokens": config.min_tail_tokens,
         "overlap_policy": "largest_whole_sentence_suffix_at_or_below_target",

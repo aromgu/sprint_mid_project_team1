@@ -39,6 +39,7 @@ from src.chunking.advanced_chunking import (
     normalize_text_for_embedding,
     pack_sentence_spans,
     validate_advanced_chunks,
+    validate_advanced_config,
 )
 
 
@@ -330,6 +331,22 @@ def test_default_config_uses_512_limit_and_51_target_overlap() -> None:
     assert config.max_tokens == 512
     assert config.overlap_tokens == 51
     assert config.min_tail_tokens == 51
+
+
+def test_default_config_exempts_tables_up_to_embedding_model_limit() -> None:
+    """표는 같은 표가 쪼개지지 않도록 512 상한 예외를 받고 8,191까지 허용한다."""
+    config = AdvancedChunkConfig()
+
+    assert config.table_max_tokens == 8191
+    assert config.table_max_tokens > config.max_tokens
+
+
+def test_validate_advanced_config_rejects_table_limit_below_text_limit() -> None:
+    """table_max_tokens가 max_tokens보다 작은 설정은 거부한다."""
+    config = AdvancedChunkConfig(max_tokens=512, table_max_tokens=511)
+
+    with pytest.raises(ValueError, match="table_max_tokens"):
+        validate_advanced_config(config)
 
 
 def test_advanced_chunk_output_contract_is_versioned_v2() -> None:
@@ -1076,13 +1093,49 @@ def test_oversized_single_sentence_uses_token_fallback_without_loss() -> None:
     assert rebuilt == source
 
 
-def test_markdown_table_splits_by_whole_rows_and_repeats_header() -> None:
-    """큰 표는 Markdown 행 단위로 나누고 모든 후속 조각에 헤더를 반복한다."""
+def test_table_larger_than_text_limit_stays_in_one_chunk() -> None:
+    """같은 표는 512 토큰을 넘어도 table_max_tokens 안이면 한 청크로 유지한다."""
     header = ["| 구분 | 내용 |", "| --- | --- |"]
     rows = [f"| 행{i:02d} | {'가' * 20} |" for i in range(40)]
     markdown = "\n".join([*header, *rows])
     document = make_document()
     block = make_table_block(1, markdown)
+
+    chunks = chunk_advanced_table_block(
+        document,
+        block,
+        codec=CODEC,
+        config=CONFIG,
+    )
+
+    table_token_count = len(CODEC.encode(markdown))
+    assert table_token_count > CONFIG.max_tokens
+    assert table_token_count <= CONFIG.table_max_tokens
+    assert len(chunks) == 1
+    chunk = chunks[0]
+    assert chunk["content_type"] == "table"
+    assert chunk["table_id"] == block["table_id"]
+    assert chunk["bm25_tokens"] == []
+    assert chunk["embedding_text_normalization"] == "preserve_markdown_newlines"
+    assert chunk["table_header_repeated"] is False
+    assert chunk["table_part_index"] == 1
+    assert chunk["table_part_count"] == 1
+    assert chunk["quality_flags"] == []
+
+    lines = chunk["embedding_text"].splitlines()
+    assert lines[:2] == header
+    assert lines[2:] == rows
+
+
+def test_markdown_table_splits_by_whole_rows_and_repeats_header() -> None:
+    """table_max_tokens를 넘는 표만 Markdown 행 단위로 나누고 헤더를 반복한다."""
+    header = ["| 구분 | 내용 |", "| --- | --- |"]
+    rows = [f"| 행{i:03d} | {'가' * 30} |" for i in range(400)]
+    markdown = "\n".join([*header, *rows])
+    document = make_document()
+    block = make_table_block(1, markdown)
+
+    assert len(CODEC.encode(markdown)) > CONFIG.table_max_tokens
 
     chunks = chunk_advanced_table_block(
         document,
@@ -1100,7 +1153,10 @@ def test_markdown_table_splits_by_whole_rows_and_repeats_header() -> None:
         for chunk in chunks
     )
     assert all("\n" in chunk["embedding_text"] for chunk in chunks)
-    assert all(len(CODEC.encode(chunk["embedding_text"])) <= 512 for chunk in chunks)
+    assert all(
+        len(CODEC.encode(chunk["embedding_text"])) <= CONFIG.table_max_tokens
+        for chunk in chunks
+    )
     assert chunks[0]["table_header_repeated"] is False
     assert all(chunk["table_header_repeated"] is True for chunk in chunks[1:])
     assert [chunk["table_part_index"] for chunk in chunks] == list(
@@ -1117,17 +1173,19 @@ def test_markdown_table_splits_by_whole_rows_and_repeats_header() -> None:
 
 
 def test_oversized_table_row_with_multiline_context_stays_within_budget() -> None:
-    """표 제목이 포함된 긴 행 fallback은 헤더를 중복 삽입하지 않는다."""
+    """표 제목이 포함된, table_max_tokens를 넘는 긴 행 fallback은 헤더를 중복 삽입하지 않는다."""
     markdown = "\n".join(
         [
             "요구사항 상세 표",
             "| 구분 | 내용 |",
             "| --- | --- |",
-            f"| 기능 | {'가' * 900} |",
+            f"| 기능 | {'가' * 8300} |",
         ]
     )
     document = make_document()
     block = make_table_block(1, markdown)
+
+    assert len(CODEC.encode(markdown)) > CONFIG.table_max_tokens
 
     chunks = chunk_advanced_table_block(
         document,
@@ -1137,7 +1195,10 @@ def test_oversized_table_row_with_multiline_context_stays_within_budget() -> Non
     )
 
     assert len(chunks) > 1
-    assert all(len(CODEC.encode(chunk["embedding_text"])) <= 512 for chunk in chunks)
+    assert all(
+        len(CODEC.encode(chunk["embedding_text"])) <= CONFIG.table_max_tokens
+        for chunk in chunks
+    )
     assert all(
         chunk["embedding_text"].count("요구사항 상세 표") == 1 for chunk in chunks
     )
