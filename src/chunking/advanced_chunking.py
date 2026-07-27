@@ -533,44 +533,65 @@ def _find_pdf_page_marker_blocks(
     return detected
 
 
+def _stream_group_key(block: Mapping[str, Any]) -> str:
+    """텍스트를 함께 묶을 결합 단위를 만든다.
+
+    PDF의 ``kss_boundary_id``는 이미 page 단위라 그대로 쓴다. HWP/HWPX는
+    paragraph 단위이므로 ``:paragraph:`` 이하를 떼어내 같은 section의 연속
+    문단이 한 stream으로 묶이게 한다. 문단마다 stream을 끊으면 512토큰을
+    채우지 못하고 짧은 청크가 대량으로 생기며 overlap도 만들어지지 않는다.
+
+    ``para_idx``가 없어 boundary가 block_id로 대체된 블록은 어느 section에
+    속하는지 알 수 없으므로 그대로 단독 처리한다.
+    """
+    boundary = str(block.get("kss_boundary_id") or "")
+    marker = ":paragraph:"
+    index = boundary.rfind(marker)
+    return boundary if index < 0 else boundary[:index]
+
+
 def build_advanced_streams(
     document: Mapping[str, Any],
     blocks: Sequence[dict[str, Any]],
 ) -> list[AdvancedTextStream | dict[str, Any]]:
     """문서 순서를 유지하며 텍스트 stream과 독립 표 stream을 만든다.
 
-    PDF는 같은 page라도 표·이미지가 끼면 stream을 끊는다. 이렇게 해야 표
-    앞뒤 문장이 KSS 입력에서 인위적으로 붙지 않으면서 page 경계도 지킨다.
-    HWP/HWPX도 같은 paragraph ID 안의 연속 텍스트만 합친다.
+    결합 단위는 PDF는 page, HWP/HWPX는 section이다(``_stream_group_key``).
+    표·이미지는 텍스트 결합을 끊지 않는다. 표 사이에 낀 제목 한 줄이 3토큰짜리
+    청크로 떨어져 나오는 문제가 있었고, 표 본문은 어차피 독립 stream으로 따로
+    색인되므로 앞뒤 문단을 잇는 편이 검색에 유리하다.
+
+    표 stream이 텍스트 stream 중간에 생길 수 있어, 번호는 모두 모은 뒤 각
+    stream의 첫 블록 순서로 정렬해서 부여한다.
     """
     source_id = str(document["source_id"])
-    streams: list[AdvancedTextStream | dict[str, Any]] = []
+    collected: list[tuple[int, int, dict[str, Any]]] = []
     current_blocks: list[dict[str, Any]] = []
-    current_boundary: str | None = None
-    stream_order = 0
+    current_group: str | None = None
     page_marker_blocks = _find_pdf_page_marker_blocks(document, blocks)
 
     def flush_text() -> None:
-        """모아 둔 연속 텍스트를 AdvancedTextStream 하나로 확정한다."""
-        nonlocal current_blocks, current_boundary, stream_order
+        """모아 둔 연속 텍스트를 하나의 텍스트 stream 후보로 확정한다."""
+        nonlocal current_blocks, current_group
         if not current_blocks:
             return
-        stream_order += 1
         text, block_spans = _join_text_blocks(current_blocks)
         anchor = current_blocks[0]
-        streams.append(
-            AdvancedTextStream(
-                stream_id=f"{source_id}:AS{stream_order:06d}",
-                stream_order=stream_order,
-                boundary_type=str(anchor["kss_boundary_type"]),
-                boundary_id=str(anchor["kss_boundary_id"]),
-                blocks=tuple(current_blocks),
-                text=text,
-                block_char_spans=block_spans,
+        collected.append(
+            (
+                int(anchor["block_order"]),
+                0,
+                {
+                    "kind": "text",
+                    "anchor": anchor,
+                    "blocks": tuple(current_blocks),
+                    "text": text,
+                    "spans": block_spans,
+                },
             )
         )
         current_blocks = []
-        current_boundary = None
+        current_group = None
 
     for block in sorted(blocks, key=lambda item: int(item["block_order"])):
         if str(block.get("source_id")) != source_id:
@@ -583,27 +604,47 @@ def build_advanced_streams(
             flush_text()
             continue
         if _is_advanced_text(block):
-            boundary = str(block.get("kss_boundary_id") or "")
-            if not boundary:
+            if not str(block.get("kss_boundary_id") or ""):
                 raise ValueError(
                     f"KSS 대상에 boundary ID가 없습니다: {block['block_id']}"
                 )
-            if current_blocks and boundary != current_boundary:
+            group = _stream_group_key(block)
+            if current_blocks and group != current_group:
                 flush_text()
-            current_boundary = boundary
+            current_group = group
             current_blocks.append(block)
             continue
 
-        # 표·이미지·제외 블록은 문장 결합을 끊는다. 색인 대상 표만 독립
-        # stream으로 남기고, 이미지 및 exclude 블록은 청크를 만들지 않는다.
-        flush_text()
+        # 색인 대상 표만 독립 stream으로 남긴다. 이미지와 exclude 블록은 청크를
+        # 만들지 않으며, 어느 쪽도 텍스트 결합을 끊지 않는다.
         if _is_advanced_table(block):
-            stream_order += 1
-            table_stream = dict(block)
-            table_stream["stream_id"] = f"{source_id}:AS{stream_order:06d}"
-            table_stream["stream_order"] = stream_order
-            streams.append(table_stream)
+            collected.append(
+                (int(block["block_order"]), 1, {"kind": "table", "block": block})
+            )
     flush_text()
+
+    collected.sort(key=lambda item: (item[0], item[1]))
+    streams: list[AdvancedTextStream | dict[str, Any]] = []
+    for stream_order, (_, _, payload) in enumerate(collected, start=1):
+        stream_id = f"{source_id}:AS{stream_order:06d}"
+        if payload["kind"] == "text":
+            anchor = payload["anchor"]
+            streams.append(
+                AdvancedTextStream(
+                    stream_id=stream_id,
+                    stream_order=stream_order,
+                    boundary_type=str(anchor["kss_boundary_type"]),
+                    boundary_id=str(anchor["kss_boundary_id"]),
+                    blocks=payload["blocks"],
+                    text=payload["text"],
+                    block_char_spans=payload["spans"],
+                )
+            )
+            continue
+        table_stream = dict(payload["block"])
+        table_stream["stream_id"] = stream_id
+        table_stream["stream_order"] = stream_order
+        streams.append(table_stream)
     return streams
 
 
@@ -1955,9 +1996,13 @@ def validate_advanced_chunks(
             locations_valid &= chunk.get("page_start") is None
             locations_valid &= chunk.get("page_end") is None
             if chunk["content_type"] == "text":
-                boundary_ids = {block.get("kss_boundary_id") for block in source_blocks}
-                locations_valid &= len(boundary_ids) == 1
-                locations_valid &= chunk.get("kss_boundary_id") in boundary_ids
+                # 문단은 넘어도 section 경계는 넘지 않는다.
+                group_keys = {_stream_group_key(block) for block in source_blocks}
+                locations_valid &= len(group_keys) == 1
+                chunk_group = _stream_group_key(
+                    {"kss_boundary_id": chunk.get("kss_boundary_id")}
+                )
+                locations_valid &= chunk_group in group_keys
 
         if chunk["content_type"] == "table":
             table_contract_valid &= chunk.get("kss_applied") is False
@@ -2206,7 +2251,7 @@ def validate_advanced_chunks(
         "text_newlines_are_excluded_from_embedding_only": bool(
             embedding_text_contract_valid
         ),
-        "pdf_page_and_hwp_paragraph_boundaries_are_preserved": bool(locations_valid),
+        "pdf_page_and_hwp_section_boundaries_are_preserved": bool(locations_valid),
         "tables_use_markdown_without_kss_or_bm25": bool(table_contract_valid),
         "text_only_has_kiwi_bm25_tokens": bool(bm25_contract_valid),
         "kss_sanitization_metadata_is_consistent": bool(kss_metadata_valid),
@@ -2342,6 +2387,7 @@ def build_advanced_summary(
         "page_marker_policy": "always_metadata_only_never_in_embedding_text",
         "page_marker_detector_id": PAGE_MARKER_DETECTOR_ID,
         "table_overlap_policy": "header_repeat_only",
+        "text_stream_grouping": "pdf_page_or_hwp_section_across_tables",
         "embedding_text_field": "embedding_text",
         "text_embedding_normalization": TEXT_EMBEDDING_NORMALIZATION_ID,
         "table_embedding_normalization": "preserve_markdown_newlines",

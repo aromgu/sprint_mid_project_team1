@@ -533,8 +533,8 @@ def test_decorative_bullet_omitted_by_kss_stays_in_raw_text() -> None:
     assert spans[0].raw_text.startswith("⦁\U000f0854")
 
 
-def test_hwp_text_streams_never_cross_section_and_paragraph_boundary() -> None:
-    """HWP에서는 같은 section이어도 서로 다른 para를 합치지 않는다."""
+def test_hwp_text_streams_join_paragraphs_within_one_section() -> None:
+    """HWP는 같은 section의 연속 문단을 합치고 section 경계는 넘지 않는다."""
     document = make_document(file_type="hwp")
     blocks = [
         make_text_block(1, "첫 문단입니다.", section_idx=0, para_idx=7),
@@ -545,12 +545,20 @@ def test_hwp_text_streams_never_cross_section_and_paragraph_boundary() -> None:
 
     streams = build_advanced_text_streams(document, blocks)
 
-    assert len(streams) == 3
+    assert len(streams) == 2
+    assert "첫 문단" in streams[0].text
+    assert "둘째 문단" in streams[0].text
+    assert "다른 절" not in streams[0].text
+    assert "다른 절" in streams[1].text
+    # boundary_id는 각 stream 첫 블록 것을 유지한다.
     assert [stream.boundary_id for stream in streams] == [
-        block["kss_boundary_id"] for block in blocks
+        blocks[0]["kss_boundary_id"],
+        blocks[2]["kss_boundary_id"],
     ]
+    # KSS는 stream 단위로 호출되므로 같은 section 문단은 한 번에 들어간다.
     run_corpus([document], blocks, kss=kss)
-    assert kss.calls == [block["text"] for block in blocks]
+    assert len(kss.calls) == 2
+    assert "첫 문단" in kss.calls[0] and "둘째 문단" in kss.calls[0]
 
 
 def test_pdf_text_streams_join_only_blocks_on_the_same_page() -> None:
