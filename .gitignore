@@ -14,3 +14,6 @@ __pycache__/
 
 # 로그는 업로드 하지 않도록 한다.
 logs/
+
+# evaluate 결과는 업로드 하지 않도록 한다.
+output/
