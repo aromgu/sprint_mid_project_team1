@@ -536,18 +536,29 @@ def _find_pdf_page_marker_blocks(
 def _stream_group_key(block: Mapping[str, Any]) -> str:
     """텍스트를 함께 묶을 결합 단위를 만든다.
 
-    PDF의 ``kss_boundary_id``는 이미 page 단위라 그대로 쓴다. HWP/HWPX는
-    paragraph 단위이므로 ``:paragraph:`` 이하를 떼어내 같은 section의 연속
-    문단이 한 stream으로 묶이게 한다. 문단마다 stream을 끊으면 512토큰을
-    채우지 못하고 짧은 청크가 대량으로 생기며 overlap도 만들어지지 않는다.
+    PDF의 ``kss_boundary_id``는 이미 page 단위라 그대로 쓴다.
 
-    ``para_idx``가 없어 boundary가 block_id로 대체된 블록은 어느 section에
-    속하는지 알 수 없으므로 그대로 단독 처리한다.
+    HWP/HWPX의 boundary는 paragraph 단위다. 문단마다 stream을 끊으면 512토큰을
+    채우지 못하고 짧은 청크가 대량으로 생기며 overlap도 만들어지지 않는다.
+    그렇다고 ``section_idx``로 묶으면 한글의 '구역'은 문서 하나에 보통 1개뿐이라
+    (실측 94개 중 63개) 문서 전체가 한 덩어리가 되어 장 경계를 잃는다.
+
+    그래서 ``section_path``(``Ⅰ. 추진개요`` 같은 논리적 장)를 결합 단위로 쓴다.
+    실측 기준 문서당 평균 8.3개 그룹이라 512를 여러 번 채우면서도 장 경계는
+    지킨다. ``section_path``가 없으면 section 번호로, 그것도 없으면 원래
+    boundary로 물러난다.
     """
     boundary = str(block.get("kss_boundary_id") or "")
+    if ":page:" in boundary:
+        return boundary
+
     marker = ":paragraph:"
     index = boundary.rfind(marker)
-    return boundary if index < 0 else boundary[:index]
+    section_scope = boundary if index < 0 else boundary[:index]
+    section_path = str(block.get("section_path") or "").strip()
+    if not section_path:
+        return section_scope
+    return f"{section_scope}::path::{section_path}"
 
 
 def build_advanced_streams(
@@ -1996,13 +2007,13 @@ def validate_advanced_chunks(
             locations_valid &= chunk.get("page_start") is None
             locations_valid &= chunk.get("page_end") is None
             if chunk["content_type"] == "text":
-                # 문단은 넘어도 section 경계는 넘지 않는다.
+                # 문단은 넘어도 section_path(논리적 장) 경계는 넘지 않는다.
+                # 그룹 키는 원본 블록에서만 계산한다. 청크에는 section_path가
+                # 없으므로 청크로 키를 만들면 항상 어긋난다.
                 group_keys = {_stream_group_key(block) for block in source_blocks}
                 locations_valid &= len(group_keys) == 1
-                chunk_group = _stream_group_key(
-                    {"kss_boundary_id": chunk.get("kss_boundary_id")}
-                )
-                locations_valid &= chunk_group in group_keys
+                boundary_ids = {block.get("kss_boundary_id") for block in source_blocks}
+                locations_valid &= chunk.get("kss_boundary_id") in boundary_ids
 
         if chunk["content_type"] == "table":
             table_contract_valid &= chunk.get("kss_applied") is False
@@ -2387,7 +2398,7 @@ def build_advanced_summary(
         "page_marker_policy": "always_metadata_only_never_in_embedding_text",
         "page_marker_detector_id": PAGE_MARKER_DETECTOR_ID,
         "table_overlap_policy": "header_repeat_only",
-        "text_stream_grouping": "pdf_page_or_hwp_section_across_tables",
+        "text_stream_grouping": "pdf_page_or_hwp_section_path_across_tables",
         "embedding_text_field": "embedding_text",
         "text_embedding_normalization": TEXT_EMBEDDING_NORMALIZATION_ID,
         "table_embedding_normalization": "preserve_markdown_newlines",
