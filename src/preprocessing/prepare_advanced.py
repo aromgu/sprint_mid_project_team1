@@ -342,6 +342,11 @@ def _pdf_table_formats(
                     matrix = detected_table.extract() or []
                 except Exception:
                     continue
+                # 병합(rowspan/colspan) 복원용 셀 좌표를 함께 넘긴다.
+                # extract()가 돌려주는 행렬은 병합을 잃고 평면화되지만,
+                # Table.cells에는 각 셀의 (x0, top, x1, bottom)이 남아 있어
+                # build_pdf_table_grid가 격자를 되살릴 수 있다. 좌표를 못 얻으면
+                # None을 넘겨 기존 평면 표현으로 그대로 되돌아간다.
                 try:
                     cell_bboxes = [
                         tuple(cell)
