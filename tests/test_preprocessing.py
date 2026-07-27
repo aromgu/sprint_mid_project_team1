@@ -10,6 +10,7 @@ from typing import Any
 
 from src.loader.load_documents import SourceDocument
 from src.preprocessing.clean_text import (
+    collapse_leader_dots,
     VerifiedAnalysisSource,
     classify_table,
     field_parts,
@@ -362,6 +363,38 @@ class PreprocessingTests(unittest.TestCase):
         self.assertNotIn("참조]", display_content)
         self.assertNotIn("<img", display_content)
         self.assertEqual(result.tables[0]["render_mode"], "gfm")
+
+    def test_leader_dots_are_collapsed_but_ellipsis_is_kept(self) -> None:
+        """목차 점선만 공백으로 줄이고 본문 생략 표기는 남긴다."""
+        # 목차 줄은 글자의 87%가 점선이라 임베딩에서 제거한다. 쪽번호는 남는다.
+        self.assertEqual(
+            collapse_leader_dots("1. 사업 개요 ···············04"),
+            "1. 사업 개요  04",
+        )
+        self.assertEqual(
+            collapse_leader_dots("마침표 리더 .........12"),
+            "마침표 리더  12",
+        )
+        # 5개 미만은 본문 생략 표기이므로 건드리지 않는다.
+        self.assertEqual(
+            collapse_leader_dots("생략 표기 ··· 유지"),
+            "생략 표기 ··· 유지",
+        )
+        self.assertEqual(collapse_leader_dots("점 3개 ... 유지"), "점 3개 ... 유지")
+
+    def test_normalize_text_removes_toc_leader_dots(self) -> None:
+        """normalize_text를 거친 블록 텍스트에는 점선 리더가 남지 않는다."""
+        source = (
+            "Ⅰ. 사업개요 ······························ 4\n2. 사업 배경 ·········· 5"
+        )
+        normalized = normalize_text(source)
+
+        self.assertNotIn("·····", normalized)
+        self.assertIn("Ⅰ. 사업개요", normalized)
+        self.assertIn("4", normalized)
+        self.assertIn("2. 사업 배경", normalized)
+        # 여러 번 실행해도 결과가 같다.
+        self.assertEqual(normalize_text(normalized), normalized)
 
     def test_hwp_preserves_list_note_formula_and_toc_metadata(self) -> None:
         """목록·각주·수식·목차의 검색과 추적에 필요한 값을 보존한다."""
