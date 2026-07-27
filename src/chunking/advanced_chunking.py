@@ -63,6 +63,16 @@ DEFAULT_MAX_TOKENS = 512
 DEFAULT_TABLE_MAX_TOKENS = 8191
 DEFAULT_OVERLAP_TOKENS = 51
 DEFAULT_MIN_TAIL_TOKENS = DEFAULT_OVERLAP_TOKENS
+# KSS(pecab)는 입력이 길어지면 제곱에 가깝게 느려진다. 그래서 스트림 전체를 한 번에
+# 넣지 않고 문단("\n\n") 경계에서 이 상한 이하로 나눠 호출한다. 문장은 빈 줄을 넘지
+# 않으므로 나눠 호출해도 문장 경계 결과는 같다.
+#
+# 같은 12,000자를 상한별로 처리한 실측 처리량:
+#   200자 1,166자/초 · 400자 569자/초 · 800자 227자/초 · 1,600자 80자/초
+# 400자를 고른 이유: 800자보다 2.5배 빠르면서, 문단 길이 p99(195자)의 두 배라
+# 대개 문단 2~3개를 함께 본다. 200자까지 낮추면 더 빠르지만 문단 하나가 곧
+# 세그먼트가 되어 문단 사이 문맥을 잃을 여지가 커진다.
+KSS_INPUT_MAX_CHARS = 400
 EXPECTED_KSS_VERSION = "6.0.6"
 EXPECTED_KIWI_VERSION = "0.23.2"
 INDEXABLE_POLICIES = frozenset({"index", "flatten"})
@@ -1352,14 +1362,50 @@ def build_advanced_chunk_record(
     return record
 
 
+def split_kss_input_at_paragraphs(text: str, limit: int) -> list[str]:
+    """KSS 입력을 문단 경계에서 ``limit`` 이하 조각으로 나눈다.
+
+    ``_join_text_blocks``가 문단을 ``\n\n``으로 이었으므로 그 경계에서만 자른다.
+    문장이 빈 줄을 넘지 않기 때문에 나눠 호출해도 문장 경계가 달라지지 않는다.
+    한 문단이 혼자 ``limit``을 넘으면 쪼개지 않고 그대로 둔다(정확성 우선).
+    """
+    if len(text) <= limit:
+        return [text]
+    separator = "\n\n"
+    segments: list[str] = []
+    current = ""
+    for paragraph in text.split(separator):
+        candidate = paragraph if not current else current + separator + paragraph
+        if current and len(candidate) > limit:
+            segments.append(current)
+            current = paragraph
+            continue
+        current = candidate
+    if current:
+        segments.append(current)
+    return segments
+
+
 def _call_sentence_splitter(
     splitter: SentenceSplitter | Callable[[str], Sequence[str]],
     text: str,
+    *,
+    input_limit: int = KSS_INPUT_MAX_CHARS,
 ) -> Sequence[str]:
-    """주입한 KSS wrapper 또는 callable을 한 경계에 한 번 호출한다."""
-    if callable(splitter):
-        return splitter(text)
-    raise TypeError("sentence_splitter는 callable이어야 합니다")
+    """KSS를 문단 경계 조각으로 나눠 호출하고 문장을 순서대로 이어 붙인다.
+
+    조각으로 나누는 이유는 성능이다. pecab이 긴 입력에서 제곱에 가깝게 느려져
+    스트림 전체를 한 번에 넣으면 전체 청킹이 10시간을 넘긴다.
+    """
+    if not callable(splitter):
+        raise TypeError("sentence_splitter는 callable이어야 합니다")
+    segments = split_kss_input_at_paragraphs(text, input_limit)
+    if len(segments) == 1:
+        return splitter(segments[0])
+    sentences: list[str] = []
+    for segment in segments:
+        sentences.extend(splitter(segment))
+    return sentences
 
 
 def chunk_advanced_text_stream(
@@ -2492,6 +2538,7 @@ def build_advanced_summary(
         "kss_version": EXPECTED_KSS_VERSION,
         "kss_backend": KssSentenceSplitter.backend,
         "kss_num_workers": KssSentenceSplitter.num_workers,
+        "kss_input_max_chars": KSS_INPUT_MAX_CHARS,
         "kiwipiepy_version": EXPECTED_KIWI_VERSION,
         "bm25_pos_policy": BM25_POS_POLICY_ID,
         "bm25_excluded_pos_prefixes": list(BM25_EXCLUDED_POS_PREFIXES),
@@ -2590,6 +2637,7 @@ __all__ = [
     "AdvancedChunkingResult",
     "AdvancedTextStream",
     "BM25_EXCLUDED_POS_PREFIXES",
+    "KSS_INPUT_MAX_CHARS",
     "BM25_POS_POLICY_ID",
     "BM25_TOKEN_NORMALIZATION",
     "CORPUS_ID",

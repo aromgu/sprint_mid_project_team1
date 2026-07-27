@@ -16,6 +16,7 @@ import json
 import os
 import time
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +30,8 @@ from src.chunking.advanced_chunking import (
     STRATEGY_ID,
     TEXT_EMBEDDING_NORMALIZATION_ID,
     AdvancedChunkConfig,
+    KiwiBm25Tokenizer,
+    KssSentenceSplitter,
     TiktokenCodec,
     build_advanced_chunk_corpus,
     build_advanced_summary,
@@ -364,6 +367,77 @@ def ensure_output_policy(paths: Iterable[Path], overwrite: bool) -> None:
         )
 
 
+# 워커 프로세스마다 KSS·Kiwi를 한 번만 만들어 문서마다 모델을 다시 읽지 않는다.
+_WORKER_SPLITTER: Any = None
+_WORKER_KIWI: Any = None
+
+
+def _chunk_one_document(
+    payload: tuple[Mapping[str, Any], list[dict[str, Any]], AdvancedChunkConfig],
+) -> list[dict[str, Any]]:
+    """워커에서 문서 하나를 청킹한다. chunk_id는 문서 안에서만 매겨진다."""
+    global _WORKER_SPLITTER, _WORKER_KIWI
+    document, document_blocks, config = payload
+    if _WORKER_SPLITTER is None:
+        _WORKER_SPLITTER = KssSentenceSplitter()
+        _WORKER_KIWI = KiwiBm25Tokenizer()
+    codec = TiktokenCodec(config.model_name, config.encoding_name)
+    return build_advanced_chunk_corpus(
+        [document],
+        document_blocks,
+        codec,
+        config,
+        _WORKER_SPLITTER,
+        _WORKER_KIWI,
+    )
+
+
+def build_corpus_with_progress(
+    documents: Sequence[Mapping[str, Any]],
+    blocks: Sequence[dict[str, Any]],
+    config: AdvancedChunkConfig,
+    workers: int,
+) -> list[dict[str, Any]]:
+    """문서 단위로 청킹하며 진행 상황을 출력한다.
+
+    ``workers``가 2 이상이면 문서를 프로세스로 나눈다. 문서마다 chunk_id가 독립
+    이고 결과를 입력 문서 순서로 다시 이어 붙이므로 순차 실행과 결과가 같다.
+    워커마다 KSS·Kiwi 모델을 들고 있어 메모리를 약 2.5GB씩 쓴다.
+    """
+    blocks_by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for block in blocks:
+        blocks_by_source[str(block["source_id"])].append(block)
+    payloads = [
+        (document, blocks_by_source.get(str(document["source_id"]), []), config)
+        for document in documents
+    ]
+    total = len(payloads)
+    results: list[list[dict[str, Any]]] = [[] for _ in range(total)]
+
+    def report(done: int, source_id: str, count: int) -> None:
+        print(f"진행: {done}/{total} ({source_id}, 청크 {count}개)", flush=True)
+
+    if workers <= 1:
+        for index, payload in enumerate(payloads):
+            results[index] = _chunk_one_document(payload)
+            report(index + 1, str(payload[0]["source_id"]), len(results[index]))
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(_chunk_one_document, payload): index
+                for index, payload in enumerate(payloads)
+            }
+            for done, future in enumerate(as_completed(futures), start=1):
+                index = futures[future]
+                results[index] = future.result()
+                report(done, str(payloads[index][0]["source_id"]), len(results[index]))
+
+    corpus: list[dict[str, Any]] = []
+    for document_chunks in results:
+        corpus.extend(document_chunks)
+    return corpus
+
+
 def build_parser() -> argparse.ArgumentParser:
     """GCP 기본 경로와 검증·스모크·덮어쓰기 옵션을 정의한다."""
     parser = argparse.ArgumentParser(
@@ -387,6 +461,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--validate-only",
         action="store_true",
         help="입력 스키마와 연결만 검사하고 KSS 청킹·파일 저장은 생략합니다.",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help=(
+            "문서를 병렬 처리할 프로세스 수입니다. 워커마다 KSS·Kiwi 모델을 "
+            "약 2.5GB씩 쓰므로 사용 가능 메모리를 확인하고 늘리세요."
+        ),
     )
     parser.add_argument(
         "--overwrite",
@@ -474,12 +557,19 @@ def main() -> None:
     started_at = datetime.now(timezone.utc)
     started = time.perf_counter()
 
-    chunks = build_advanced_chunk_corpus(
+    if args.workers < 1:
+        raise ValueError("--workers는 1 이상이어야 합니다")
+    print(
+        f"청킹 시작: 문서 {len(selected_documents)}개, 워커 {args.workers}개",
+        flush=True,
+    )
+    chunks = build_corpus_with_progress(
         selected_documents,
         selected_blocks,
-        codec,
         config,
+        args.workers,
     )
+    print(f"청킹 완료: 청크 {len(chunks)}개, 검증 시작", flush=True)
     validation = validate_advanced_chunks(
         selected_documents,
         selected_blocks,
