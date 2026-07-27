@@ -57,6 +57,7 @@ def make_text_row(
         "table_id": None,
         "kss_applied": True,
         "bm25_eligible": True,
+        "bm25_source_field": "embedding_text",
         "bm25_tokens": ["사업", "수행", "기간", "주요", "과업"],
         "bm25_token_count": 5,
     }
@@ -104,9 +105,12 @@ def make_table_row(
         "table_segment_count": 1,
         "render_mode": "markdown",
         "kss_applied": False,
-        "bm25_eligible": False,
-        "bm25_tokens": [],
-        "bm25_token_count": 0,
+        # 팀 회의 결정(2026-07-27): 표도 평문으로 BM25 대상이 된다.
+        "bm25_eligible": True,
+        "bm25_source_field": "table_plain_text",
+        "table_plain_text": "구분 내용 계약기간 90일",
+        "bm25_tokens": ["구분", "내용", "계약기간", "90일"],
+        "bm25_token_count": 4,
     }
 
 
@@ -135,8 +139,11 @@ def register_test_contract(
         total_tokens=sum(row["token_count"] for row in rows),
         text_chunk_count=len(text_rows),
         table_chunk_count=len(table_rows),
-        bm25_chunk_count=len(text_rows),
-        bm25_token_total=sum(row["bm25_token_count"] for row in text_rows),
+        # 표도 BM25 대상이므로 bm25_eligible 기준으로 센다.
+        bm25_chunk_count=sum(1 for row in rows if row.get("bm25_eligible")),
+        bm25_token_total=sum(
+            row["bm25_token_count"] for row in rows if row.get("bm25_eligible")
+        ),
         schema_version="test_advanced_schema",
         strategy_id="test_advanced_strategy",
         corpus_id="test_advanced_corpus",
@@ -184,7 +191,7 @@ def test_audit_accepts_text_and_table_contract(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Dense 전체와 텍스트 전용 BM25 통계를 각각 계산한다."""
+    """Dense 전체와 텍스트·표를 모두 포함하는 BM25 통계를 계산한다."""
 
     _, _, audit = make_input(tmp_path, monkeypatch)
 
@@ -192,8 +199,9 @@ def test_audit_accepts_text_and_table_contract(
     assert audit.document_count == 2
     assert audit.text_chunk_count == 1
     assert audit.table_chunk_count == 1
-    assert audit.bm25_chunk_count == 1
-    assert audit.bm25_token_total == 5
+    # 표도 BM25 대상이므로 텍스트 1 + 표 1이다.
+    assert audit.bm25_chunk_count == 2
+    assert audit.bm25_token_total == 9
 
 
 def test_audit_rejects_unknown_sha(tmp_path: Path) -> None:
@@ -236,21 +244,37 @@ def test_audit_rejects_invalid_text_embedding_contract(
         advanced_module.audit_advanced_input(input_path)
 
 
-def test_audit_rejects_table_bm25_tokens(
+def test_audit_rejects_table_without_bm25_tokens(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """표가 KSS·Kiwi/BM25 경로에 잘못 섞이면 검증에 실패한다."""
+    """표가 BM25 대상에서 빠지면 검증에 실패한다."""
 
     row = make_table_row()
-    row["bm25_eligible"] = True
-    row["bm25_tokens"] = ["표"]
-    row["bm25_token_count"] = 1
+    row["bm25_eligible"] = False
+    row["bm25_tokens"] = []
+    row["bm25_token_count"] = 0
     input_path = tmp_path / "invalid-table.jsonl.gz"
     write_gzip_jsonl(input_path, [row])
     register_test_contract(input_path, [row], monkeypatch)
 
-    with pytest.raises(ValueError, match="표는 BM25"):
+    with pytest.raises(ValueError, match="표 BM25"):
+        advanced_module.audit_advanced_input(input_path)
+
+
+def test_audit_rejects_table_missing_plain_text(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """표 BM25 입력 평문이 비면 검증에 실패한다."""
+
+    row = make_table_row()
+    row["table_plain_text"] = ""
+    input_path = tmp_path / "invalid-plain.jsonl.gz"
+    write_gzip_jsonl(input_path, [row])
+    register_test_contract(input_path, [row], monkeypatch)
+
+    with pytest.raises(ValueError, match="평문"):
         advanced_module.audit_advanced_input(input_path)
 
 
@@ -483,7 +507,7 @@ def test_dense_index_persists_real_chroma_without_network(
     assert stored["metadatas"][1]["content_type"] == "table"
 
 
-def test_bm25_indexes_text_only_and_reuses_valid_artifact(
+def test_bm25_indexes_text_and_tables_and_reuses_valid_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -497,8 +521,8 @@ def test_bm25_indexes_text_only_and_reuses_valid_artifact(
         ),
         make_table_row(),
     ]
-    rows[1]["bm25_tokens"] = ["계약", "기간", "납품"]
-    rows[1]["bm25_token_count"] = 3
+    rows[2]["bm25_tokens"] = ["계약", "기간", "납품"]
+    rows[2]["bm25_token_count"] = 3
     input_path, _, audit = make_input(tmp_path, monkeypatch, rows)
     bm25_directory = tmp_path / "bm25"
 
@@ -519,14 +543,12 @@ def test_bm25_indexes_text_only_and_reuses_valid_artifact(
         max_records=None,
     )
 
-    assert first.indexed_text_chunk_count == 2
-    assert first.indexed_token_total == 8
+    # 텍스트 2개 + 표 1개가 모두 BM25에 들어간다.
+    assert first.indexed_text_chunk_count == 3
+    assert first.indexed_token_total == 13
     assert first.reused_existing is False
-    assert payload["chunk_ids"] == [rows[0]["chunk_id"], rows[1]["chunk_id"]]
-    assert payload["tokenized_corpus"] == [
-        rows[0]["bm25_tokens"],
-        rows[1]["bm25_tokens"],
-    ]
+    assert payload["chunk_ids"] == [row["chunk_id"] for row in rows]
+    assert payload["tokenized_corpus"] == [row["bm25_tokens"] for row in rows]
     assert second.reused_existing is True
     assert second.artifact_sha256 == first.artifact_sha256
 

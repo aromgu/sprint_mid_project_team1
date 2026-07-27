@@ -16,8 +16,8 @@ Naive RAG의 Recursive 512/102 코드와 결과를 변경하지 않고, 다음 �
 * 표는 512 상한 예외로 같은 표를 여러 청크로 쪼개지 않는다. 임베딩 모델
   입력 상한(``table_max_tokens``, 기본 8,191 토큰)을 넘는 표만 행 경계로
   나누고 뒤 part에 헤더를 반복한다.
-* 일반 텍스트 청크만 Kiwi 형태소에서 조사(J*)·어미(E*)를 제외해 별도
-  ``bm25_tokens``에 저장한다.
+* BM25는 일반 텍스트의 ``embedding_text``와 표의 ``table_plain_text``를 Kiwi로
+  토큰화해 ``bm25_tokens``에 저장한다. 품사로 걸러내지 않고 특수문자만 제거한다.
 * 파일명·위치·유형은 metadata로 보존하되 임베딩 본문에 prefix로 붙이지 않는다.
 
 KSS는 내부 공백을 정규화할 수 있다. 따라서 KSS 반환 문자열을 저장하지 않고
@@ -85,11 +85,15 @@ TEXT_LINE_SEPARATOR_TRANSLATION = str.maketrans(
     {char: " " for char in TEXT_LINE_SEPARATOR_CHARS}
 )
 
-# 팀 합의 코드를 그대로 재현한다. Kiwi 결과 중 조사(J*)와 어미(E*)만
-# 제외하며, 접사·감탄사·기호·사용자 정의 태그 등 나머지는 임의로 버리지 않는다.
-BM25_POS_POLICY_ID = "exclude_josa_eomi_prefix_v1"
-BM25_EXCLUDED_POS_PREFIXES = ("J", "E")
-BM25_TOKEN_NORMALIZATION = "strip_casefold"
+# 팀 회의 결정(2026-07-27): 품사로 걸러내지 않고 특수문자만 제거한다. 조사·어미도
+# 남기며, 형태소 표면형에서 문자·숫자가 아닌 기호만 떼어낸 뒤 빈 토큰을 버린다.
+# 이전 정책(exclude_josa_eomi_prefix_v1)은 과거 실행 재현용으로만 의미가 있다.
+BM25_POS_POLICY_ID = "strip_special_characters_v1"
+BM25_EXCLUDED_POS_PREFIXES: tuple[str, ...] = ()
+BM25_TOKEN_NORMALIZATION = "strip_special_casefold"
+# 문자(모든 언어)·숫자·밑줄과 하이픈만 남긴다. 하이픈은 `SFR-기타-002` 같은
+# 요구사항 번호에서 의미가 있어 보존한다.
+BM25_SPECIAL_CHARS = re.compile(r"[^\w\-]", re.UNICODE)
 
 BUSINESS_METADATA_FIELDS = (
     "source_row",
@@ -1122,7 +1126,11 @@ def inherited_advanced_metadata(document: Mapping[str, Any]) -> dict[str, Any]:
 def _tokenize_bm25(
     tokenizer: Bm25Tokenizer | Callable[[str], Sequence[Any]], text: str
 ) -> list[str]:
-    """Kiwi 결과에서 팀 합의대로 조사(J*)와 어미(E*)만 제외한다."""
+    """Kiwi 형태소에서 특수문자만 제거한다.
+
+    팀 회의 결정에 따라 품사로는 걸러내지 않는다. 조사·어미도 남기고, 표면형에서
+    문자·숫자·하이픈이 아닌 기호만 떼어낸 뒤 빈 토큰만 버린다.
+    """
     if hasattr(tokenizer, "tokenize"):
         values = tokenizer.tokenize(text)  # type: ignore[union-attr]
     elif callable(tokenizer):
@@ -1131,17 +1139,36 @@ def _tokenize_bm25(
         raise TypeError("Kiwi tokenizer는 tokenize 메서드 또는 callable이어야 합니다")
     tokens: list[str] = []
     for value in values:
-        if isinstance(value, str):
-            form = value
-            keep = True
-        else:
-            form = str(getattr(value, "form", ""))
-            tag = str(getattr(value, "tag", ""))
-            keep = not tag.startswith(BM25_EXCLUDED_POS_PREFIXES)
-        normalized = form.strip().casefold()
-        if keep and normalized:
+        form = value if isinstance(value, str) else str(getattr(value, "form", ""))
+        normalized = BM25_SPECIAL_CHARS.sub("", form).strip("-").strip().casefold()
+        if normalized:
             tokens.append(normalized)
     return tokens
+
+
+def table_markdown_to_plain_text(markdown: str) -> str:
+    """표 Markdown에서 BM25용 평문을 만든다.
+
+    팀 회의 결정(2026-07-27)으로 표도 BM25 대상이 됐다. Dense 본문은 구조가 보이는
+    Markdown을 그대로 쓰고, 어휘 검색용으로는 파이프와 구분선을 걷어낸 평문을 같은
+    청크의 별도 필드에 둔다. 셀 값 사이는 공백으로 이어 붙인다.
+    """
+    lines: list[str] = []
+    for raw_line in markdown.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if not line.startswith("|"):
+            # 캡션·중첩 표 제목처럼 표 밖의 줄도 검색 대상에 포함한다.
+            lines.append(line)
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if all(not cell or set(cell) <= set("-: ") for cell in cells):
+            continue  # 구분선
+        values = [cell.replace("\\|", "|") for cell in cells if cell]
+        if values:
+            lines.append(" ".join(values))
+    return normalize_text_for_embedding("\n".join(lines)).strip()
 
 
 def _quality_flags(
@@ -1182,6 +1209,7 @@ def build_advanced_chunk_record(
     boundary_id: str | None = None,
     sentence_fields: Mapping[str, Any] | None = None,
     table_fields: Mapping[str, Any] | None = None,
+    table_plain_text: str | None = None,
     extra_quality_flags: Iterable[str] = (),
 ) -> dict[str, Any]:
     """일반 텍스트와 표가 공유하는 prefix 없는 JSON 청크를 만든다."""
@@ -1210,10 +1238,23 @@ def build_advanced_chunk_record(
         raise ValueError(
             "일반 텍스트 embedding_text에 줄바꿈이 남았거나 raw_text 정규화와 다릅니다"
         )
+    # BM25 입력: 일반 텍스트는 embedding_text, 표는 같은 청크의 평문 필드를 쓴다.
+    # Dense 본문은 구조가 보이는 Markdown 그대로 두고 어휘 검색만 평문으로 한다.
+    if is_text:
+        bm25_input: str | None = embedding_text
+    elif content_type == "table" and table_plain_text:
+        bm25_input = table_plain_text
+    else:
+        bm25_input = None
+    # 토크나이저가 없으면(구조만 재현하는 호출) 평문은 남기고 BM25는 끈다.
+    bm25_enabled = bm25_input is not None and kiwi_tokenizer is not None
     bm25_tokens = (
-        _tokenize_bm25(kiwi_tokenizer, embedding_text)
-        if is_text and kiwi_tokenizer is not None
+        _tokenize_bm25(kiwi_tokenizer, bm25_input)
+        if bm25_enabled and kiwi_tokenizer is not None and bm25_input is not None
         else []
+    )
+    bm25_source_field = (
+        ("embedding_text" if is_text else "table_plain_text") if bm25_enabled else None
     )
     section_start, section_end = _range(source_blocks, "section_idx")
     para_start, para_end = _range(source_blocks, "para_idx")
@@ -1265,17 +1306,19 @@ def build_advanced_chunk_record(
         "kss_applied": is_text,
         "kss_boundary_type": boundary_type,
         "kss_boundary_id": boundary_id,
-        "bm25_eligible": is_text,
-        "bm25_tokenizer": "kiwipiepy" if is_text else None,
-        "bm25_tokenizer_version": EXPECTED_KIWI_VERSION if is_text else None,
-        "bm25_pos_policy": BM25_POS_POLICY_ID if is_text else None,
+        "bm25_eligible": bm25_enabled,
+        "bm25_tokenizer": "kiwipiepy" if bm25_enabled else None,
+        "bm25_tokenizer_version": EXPECTED_KIWI_VERSION if bm25_enabled else None,
+        "bm25_pos_policy": BM25_POS_POLICY_ID if bm25_enabled else None,
         "bm25_excluded_pos_prefixes": (
-            list(BM25_EXCLUDED_POS_PREFIXES) if is_text else []
+            list(BM25_EXCLUDED_POS_PREFIXES) if bm25_enabled else []
         ),
-        "bm25_token_normalization": BM25_TOKEN_NORMALIZATION if is_text else None,
-        "bm25_source_field": "embedding_text" if is_text else None,
+        "bm25_token_normalization": BM25_TOKEN_NORMALIZATION if bm25_enabled else None,
+        "bm25_source_field": bm25_source_field,
         "bm25_tokens": bm25_tokens,
         "bm25_token_count": len(bm25_tokens),
+        # 표의 BM25 입력 평문. Dense 본문(Markdown)과 별도로 같은 청크에 둔다.
+        "table_plain_text": table_plain_text,
         "section_path": source_blocks[0].get("section_path") or "본문",
         "section_idx_start": section_start,
         "section_idx_end": section_end,
@@ -1620,8 +1663,14 @@ def chunk_advanced_table_block(
     block: dict[str, Any],
     codec: TokenCodec,
     config: AdvancedChunkConfig,
+    kiwi_tokenizer: Bm25Tokenizer | Callable[[str], Sequence[Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """표 Markdown만 행 단위로 나누고 KSS·Kiwi는 호출하지 않는다."""
+    """표 Markdown을 행 단위로 나눈다. KSS는 쓰지 않고 BM25 평문만 만든다.
+
+    Dense 본문은 구조가 보이는 Markdown이고, BM25 입력은 같은 청크의
+    ``table_plain_text``다. ``kiwi_tokenizer``가 없으면 평문만 남기고 토큰은
+    비운다(검증기가 토크나이저 없이 표 청크 구조만 재현할 때 쓴다).
+    """
     if not _is_advanced_table(block):
         raise ValueError(f"Advanced Dense 표 계약이 아닙니다: {block.get('block_id')}")
     markdown = str(block["table_markdown"])
@@ -1661,9 +1710,14 @@ def chunk_advanced_table_block(
                 stream_part_index=table_part_index,
                 codec=codec,
                 config=config,
-                kiwi_tokenizer=None,
+                kiwi_tokenizer=kiwi_tokenizer,
+                table_plain_text=table_markdown_to_plain_text(str(part["text"])),
                 table_fields={
                     "table_id": block["table_id"],
+                    # 팀 회의 결정(2026-07-27): 답변 근거로 원본 표 구조를 보여줄 수
+                    # 있게 rowspan/colspan이 살아 있는 HTML을 청크에 함께 싣는다.
+                    # 표가 나뉘어도 각 part가 같은 원본 표 HTML을 가리킨다.
+                    "table_html": str(block.get("table_html") or ""),
                     "render_mode": "gfm",
                     "table_part_index": table_part_index,
                     "table_part_count": len(segment_parts),
@@ -1757,6 +1811,7 @@ def build_advanced_chunk_corpus(
                         stream,
                         selected_codec,
                         selected_config,
+                        selected_kiwi,
                     )
                 )
         for order, chunk in enumerate(document_chunks, start=1):
@@ -2016,15 +2071,25 @@ def validate_advanced_chunks(
                 locations_valid &= chunk.get("kss_boundary_id") in boundary_ids
 
         if chunk["content_type"] == "table":
+            # 표는 KSS를 쓰지 않지만 BM25는 평문 필드로 대상에 포함한다.
             table_contract_valid &= chunk.get("kss_applied") is False
-            table_contract_valid &= chunk.get("bm25_eligible") is False
-            table_contract_valid &= chunk.get("bm25_tokens") == []
-            table_contract_valid &= chunk.get("bm25_pos_policy") is None
-            table_contract_valid &= chunk.get("bm25_excluded_pos_prefixes") == []
-            table_contract_valid &= chunk.get("bm25_token_normalization") is None
-            table_contract_valid &= chunk.get("bm25_source_field") is None
+            table_contract_valid &= chunk.get("bm25_source_field") == "table_plain_text"
+            plain_text = chunk.get("table_plain_text")
+            table_contract_valid &= isinstance(plain_text, str) and bool(plain_text)
+            table_contract_valid &= plain_text == table_markdown_to_plain_text(
+                str(chunk["embedding_text"])
+            )
             table_contract_valid &= chunk.get("table_id") == source_blocks[0].get(
                 "table_id"
+            )
+            table_contract_valid &= chunk.get("bm25_eligible") is True
+            table_contract_valid &= chunk.get("bm25_pos_policy") == BM25_POS_POLICY_ID
+            table_contract_valid &= (
+                chunk.get("bm25_token_normalization") == BM25_TOKEN_NORMALIZATION
+            )
+            table_contract_valid &= isinstance(chunk.get("bm25_tokens"), list)
+            table_contract_valid &= chunk.get("bm25_token_count") == len(
+                chunk.get("bm25_tokens") or []
             )
             table_contract_valid &= not HTML_TABLE_TAG.search(chunk["embedding_text"])
             table_contract_valid &= bool(
@@ -2231,11 +2296,26 @@ def validate_advanced_chunks(
                 key=lambda row: int(row.get("stream_part_index") or 0),
             )
             stream_valid &= len(ordered_actual) == len(expected_chunks)
+            # 검증기에는 Kiwi가 없어 표 BM25 토큰을 재현할 수 없다. 토큰 계약은
+            # 아래 bm25 블록이 따로 검사하므로 여기서는 구조·본문만 대조한다.
+            skipped_fields = {
+                "chunk_id",
+                "chunk_order",
+                "bm25_tokens",
+                "bm25_token_count",
+                "bm25_eligible",
+                "bm25_tokenizer",
+                "bm25_tokenizer_version",
+                "bm25_pos_policy",
+                "bm25_excluded_pos_prefixes",
+                "bm25_token_normalization",
+                "bm25_source_field",
+            }
             for actual, expected in zip(ordered_actual, expected_chunks):
                 stream_valid &= all(
                     actual.get(field) == value
                     for field, value in expected.items()
-                    if field not in {"chunk_id", "chunk_order"}
+                    if field not in skipped_fields
                 )
         table_source_contract_valid &= stream_valid
         if not stream_valid:
@@ -2263,8 +2343,8 @@ def validate_advanced_chunks(
             embedding_text_contract_valid
         ),
         "pdf_page_and_hwp_section_boundaries_are_preserved": bool(locations_valid),
-        "tables_use_markdown_without_kss_or_bm25": bool(table_contract_valid),
-        "text_only_has_kiwi_bm25_tokens": bool(bm25_contract_valid),
+        "tables_use_markdown_with_plain_text_bm25": bool(table_contract_valid),
+        "text_bm25_tokens_follow_policy": bool(bm25_contract_valid),
         "kss_sanitization_metadata_is_consistent": bool(kss_metadata_valid),
         "tail_adjustment_metadata_is_consistent": bool(tail_metadata_valid),
         "short_final_text_chunks_are_adjusted": bool(short_tail_contract_valid),
@@ -2405,7 +2485,7 @@ def build_advanced_summary(
         "token_count_basis": "embedding_text",
         "overlap_token_basis": "normalized_embedding_text",
         "tail_token_basis": "normalized_embedding_text",
-        "bm25_source_field": "embedding_text",
+        "bm25_source_field": "embedding_text_or_table_plain_text",
         "tokenizer_model": codec.model_name,
         "tokenizer_encoding": codec.encoding_name,
         "tokenizer_version": codec.version,

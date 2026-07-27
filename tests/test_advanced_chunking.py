@@ -603,8 +603,9 @@ def test_pdf_page_marker_after_table_is_metadata_only() -> None:
     result = run_corpus([document], [table, marker], kss=kss, kiwi=kiwi)
 
     assert [chunk["content_type"] for chunk in result.chunks] == ["table"]
+    # KSS는 호출되지 않는다. Kiwi는 표 평문만 받고 페이지 표식은 받지 않는다.
     assert kss.calls == []
-    assert kiwi.calls == []
+    assert kiwi.calls == ["구분 내용 기간 90일"]
     assert result.summary["page_marker_block_count"] == 1
     assert result.summary["page_marker_vectorized_block_count"] == 0
     assert result.summary["page_marker_metadata_only_block_count"] == 1
@@ -787,19 +788,24 @@ def test_only_general_text_calls_kss_and_kiwi() -> None:
 
     result = run_corpus([document], [text, table, image], kss=kss, kiwi=kiwi)
 
+    # KSS는 일반 텍스트만 본다. Kiwi는 표 평문까지 토큰화한다(팀 회의 결정).
     assert kss.calls == [text["text"]]
     assert kiwi.calls
-    assert all("표행" not in call for call in kiwi.calls)
+    assert any("표행" in call for call in kiwi.calls)
     assert [chunk["content_type"] for chunk in result.chunks] == ["text", "table"]
     text_chunk, table_chunk = result.chunks
     assert text_chunk["bm25_tokens"]
-    assert table_chunk["bm25_tokens"] == []
-    assert table_chunk["bm25_pos_policy"] is None
-    assert table_chunk["bm25_excluded_pos_prefixes"] == []
+    assert text_chunk["bm25_source_field"] == "embedding_text"
+    assert table_chunk["bm25_tokens"]
+    assert table_chunk["bm25_source_field"] == "table_plain_text"
+    assert table_chunk["kss_applied"] is False
+    # 표 평문에는 Markdown 파이프와 구분선이 남지 않는다.
+    assert "|" not in table_chunk["table_plain_text"]
+    assert "표행" in table_chunk["table_plain_text"]
 
 
-def test_kiwi_excludes_only_josa_and_eomi_prefixes() -> None:
-    """팀 합의대로 J*·E*만 제외하고 다른 품사는 임의로 버리지 않는다."""
+def test_kiwi_keeps_all_pos_and_strips_special_characters() -> None:
+    """팀 회의 결정대로 품사로 걸러내지 않고 특수문자만 제거한다."""
     document = make_document()
     block = make_text_block(1, "Kiwi 품사 필터를 검증합니다.")
     kiwi = TaggedKiwiSpy(
@@ -821,20 +827,21 @@ def test_kiwi_excludes_only_josa_and_eomi_prefixes() -> None:
     result = run_corpus([document], [block], kiwi=kiwi)
     chunk = result.chunks[0]
 
+    # 조사(은)·어미(ㅂ니다)도 남고, 순수 특수문자(., §)는 사라진다.
     assert chunk["bm25_tokens"] == [
         "사업",
+        "은",
         "수행",
         "하",
+        "ㅂ니다",
         "아",
-        ".",
-        "§",
         "미등록",
         "api",
     ]
-    assert chunk["bm25_pos_policy"] == "exclude_josa_eomi_prefix_v1"
-    assert chunk["bm25_excluded_pos_prefixes"] == ["J", "E"]
-    assert chunk["bm25_token_normalization"] == "strip_casefold"
-    assert result.summary["bm25_excluded_pos_prefixes"] == ["J", "E"]
+    assert chunk["bm25_pos_policy"] == "strip_special_characters_v1"
+    assert chunk["bm25_excluded_pos_prefixes"] == []
+    assert chunk["bm25_token_normalization"] == "strip_special_casefold"
+    assert result.summary["bm25_excluded_pos_prefixes"] == []
 
 
 def test_sentence_packing_respects_512_and_exact_51_when_possible() -> None:

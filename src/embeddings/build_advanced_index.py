@@ -155,6 +155,9 @@ METADATA_FIELDS = (
     "render_mode",
     "kss_applied",
     "bm25_eligible",
+    # 팀 회의 결정(2026-07-27): 표 원본 구조를 답변 근거로 보여주기 위해
+    # table_html을 metadata에 포함한다. 큰 값이지만 표 청크에만 존재한다.
+    "table_html",
 )
 
 
@@ -316,7 +319,12 @@ def _validate_bm25_contract(
     chunk_id: str,
     content_type: str,
 ) -> tuple[int, int]:
-    """일반 텍스트에만 Kiwi BM25 토큰이 존재하는지 검사한다."""
+    """텍스트와 표 모두 Kiwi BM25 토큰을 갖는지 검사한다.
+
+    팀 회의 결정(2026-07-27)으로 표도 BM25 대상이다. 표는 Dense 본문(Markdown)과
+    별도로 같은 청크의 ``table_plain_text``를 토큰화한다. KSS는 여전히 일반
+    텍스트에만 적용한다.
+    """
 
     tokens = row.get("bm25_tokens")
     if not isinstance(tokens, list) or any(
@@ -335,11 +343,18 @@ def _validate_bm25_contract(
     if content_type == "text":
         if bm25_eligible is not True or kss_applied is not True or not tokens:
             raise ValueError(f"일반 텍스트 BM25·KSS 계약 오류: {chunk_id}")
+        if row.get("bm25_source_field") != "embedding_text":
+            raise ValueError(f"일반 텍스트 BM25 입력 필드 오류: {chunk_id}")
         return 1, len(tokens)
 
-    if bm25_eligible is not False or kss_applied is not False or tokens:
-        raise ValueError(f"표는 BM25·KSS 대상이 될 수 없습니다: {chunk_id}")
-    return 0, 0
+    # 표: KSS는 쓰지 않고 평문으로 BM25만 만든다.
+    if bm25_eligible is not True or kss_applied is not False or not tokens:
+        raise ValueError(f"표 BM25·KSS 계약 오류: {chunk_id}")
+    if row.get("bm25_source_field") != "table_plain_text":
+        raise ValueError(f"표 BM25 입력 필드 오류: {chunk_id}")
+    if not str(row.get("table_plain_text") or "").strip():
+        raise ValueError(f"표 BM25 평문이 비었습니다: {chunk_id}")
+    return 1, len(tokens)
 
 
 def audit_advanced_input(
