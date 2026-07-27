@@ -65,3 +65,7 @@ log_*.md
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Playwright runtime artifacts (visual baselines under tests are tracked)
+frontend/test-results/
+frontend/playwright-report/
