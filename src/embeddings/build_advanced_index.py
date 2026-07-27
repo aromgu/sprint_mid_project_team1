@@ -112,7 +112,7 @@ ADVANCED_V2_TABLE_WHOLE_INPUT_CONTRACT = AdvancedInputContract(
 # 이미지 내부 참조까지 걷어낸 뒤의 값이다(chunks_v5b).
 ADVANCED_V2_SECTION_PACKED_INPUT_CONTRACT = AdvancedInputContract(
     name="advanced_v2_section_packed_table_bm25",
-    input_sha256="afb420972294495a286454fa67f2ac3b414f2532565cfd7d614120bb1b500c3a",
+    input_sha256="28c48ec3796ada8fa4ae7f5eab402a57ccaa6c906a8ad047e601b68db58070d9",
     chunk_count=17_950,
     document_count=98,
     total_tokens=10_111_593,
@@ -120,7 +120,7 @@ ADVANCED_V2_SECTION_PACKED_INPUT_CONTRACT = AdvancedInputContract(
     table_chunk_count=12_428,
     # 표도 BM25 대상이다. 내용이 중첩 표 참조뿐이어서 평문이 빈 표 23개는 제외된다.
     bm25_chunk_count=17_927,
-    bm25_token_total=3_846_825,
+    bm25_token_total=3_846_828,
     schema_version="rfp_advanced_chunk_v2",
     strategy_id=(
         "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_"
