@@ -547,6 +547,18 @@ def _find_pdf_page_marker_blocks(
     return detected
 
 
+def section_scope_of(boundary_id: str) -> str:
+    """boundary ID에서 문단 번호를 떼어 section 범위만 남긴다.
+
+    HWP boundary는 ``…:section:0:paragraph:14`` 형태다. 문단을 묶은 stream의
+    청크는 stream 첫 블록의 boundary를 기록하므로, 청크와 블록을 대조할 때는
+    문단 번호가 아니라 section 범위로 비교해야 한다.
+    """
+    marker = ":paragraph:"
+    index = boundary_id.rfind(marker)
+    return boundary_id if index < 0 else boundary_id[:index]
+
+
 def _stream_group_key(block: Mapping[str, Any]) -> str:
     """텍스트를 함께 묶을 결합 단위를 만든다.
 
@@ -566,9 +578,7 @@ def _stream_group_key(block: Mapping[str, Any]) -> str:
     if ":page:" in boundary:
         return boundary
 
-    marker = ":paragraph:"
-    index = boundary.rfind(marker)
-    section_scope = boundary if index < 0 else boundary[:index]
+    section_scope = section_scope_of(boundary)
     section_path = str(block.get("section_path") or "").strip()
     if not section_path:
         return section_scope
@@ -2109,12 +2119,16 @@ def validate_advanced_chunks(
             locations_valid &= chunk.get("page_end") is None
             if chunk["content_type"] == "text":
                 # 문단은 넘어도 section_path(논리적 장) 경계는 넘지 않는다.
-                # 그룹 키는 원본 블록에서만 계산한다. 청크에는 section_path가
-                # 없으므로 청크로 키를 만들면 항상 어긋난다.
                 group_keys = {_stream_group_key(block) for block in source_blocks}
                 locations_valid &= len(group_keys) == 1
-                boundary_ids = {block.get("kss_boundary_id") for block in source_blocks}
-                locations_valid &= chunk.get("kss_boundary_id") in boundary_ids
+                # 청크의 boundary는 stream 첫 블록 것이므로 문단 번호가 그 청크의
+                # 블록과 다를 수 있다. 그래서 section 범위로 대조한다.
+                scopes = {
+                    section_scope_of(str(block.get("kss_boundary_id") or ""))
+                    for block in source_blocks
+                }
+                chunk_scope = section_scope_of(str(chunk.get("kss_boundary_id") or ""))
+                locations_valid &= chunk_scope in scopes
 
         if chunk["content_type"] == "table":
             # 표는 KSS를 쓰지 않지만 BM25는 평문 필드로 대상에 포함한다.
@@ -2638,6 +2652,7 @@ __all__ = [
     "AdvancedTextStream",
     "BM25_EXCLUDED_POS_PREFIXES",
     "KSS_INPUT_MAX_CHARS",
+    "section_scope_of",
     "BM25_POS_POLICY_ID",
     "BM25_TOKEN_NORMALIZATION",
     "CORPUS_ID",

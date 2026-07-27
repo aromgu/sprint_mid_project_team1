@@ -561,6 +561,42 @@ def test_hwp_text_streams_join_paragraphs_within_one_section() -> None:
     assert "첫 문단" in kss.calls[0] and "둘째 문단" in kss.calls[0]
 
 
+def test_multi_paragraph_chunk_passes_section_boundary_gate() -> None:
+    """문단을 묶은 stream의 청크도 section 경계 게이트를 통과한다.
+
+    청크는 stream 첫 블록의 boundary를 기록하므로 그 청크가 담은 블록의 문단
+    번호와 다를 수 있다. 게이트는 문단 번호가 아니라 section 범위로 대조해야
+    한다.
+    """
+    document = make_document(file_type="hwp")
+    blocks = [
+        make_text_block(
+            index,
+            f"{index}번째 문단입니다. " * 12,
+            section_idx=0,
+            para_idx=index,
+        )
+        for index in range(1, 9)
+    ]
+    for block in blocks:
+        block["section_path"] = "Ⅰ. 추진개요"
+
+    result = run_corpus([document], blocks)
+
+    # 한 stream이 512를 넘어 여러 청크로 쪼개졌고, 뒤 청크의 블록은 첫 문단이
+    # 아니다. 그래도 검증은 통과해야 한다.
+    text_chunks = [c for c in result.chunks if c["content_type"] == "text"]
+    assert len(text_chunks) > 1
+    assert result.summary["validation"]["overall_pass"] is True
+    assert result.summary["validation"]["gates"][
+        "pdf_page_and_hwp_section_boundaries_are_preserved"
+    ]
+    later = text_chunks[-1]
+    covered = set(later["source_block_ids"])
+    assert blocks[0]["block_id"] not in covered
+    assert later["kss_boundary_id"] == blocks[0]["kss_boundary_id"]
+
+
 def test_pdf_text_streams_join_only_blocks_on_the_same_page() -> None:
     """PDF의 같은 페이지 텍스트는 합치되 다음 페이지로 넘어가지 않는다."""
     document = make_document(file_type="pdf")
