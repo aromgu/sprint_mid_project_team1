@@ -502,16 +502,24 @@ def render_markdown_cell_block(
     block: Any,
     table_ids: dict[int, str],
     picture_ids: dict[int, str],
+    *,
+    include_media: bool = True,
 ) -> str:
     """셀 자식을 HTML 없이 Markdown 한 조각으로 바꾼다.
 
     중첩 표는 셀 안에 다시 그리지 않고 ID만 남긴다. 실제 표는 부모 표 아래에
     별도 Markdown 표로 펼쳐 이미지와 표 내용이 중복되는 일을 막는다.
+
+    ``include_media=False``는 병합 셀을 아래·오른쪽 칸에 반복해 채울 때 쓴다.
+    이미지와 중첩 표 참조는 부모 블록 안에 한 번만 있어야 하므로 반복 대상에서
+    제외하고 텍스트만 남긴다.
     """
     kind = kind_name(block)
     if kind == "table":
-        return f"[중첩 표: {table_ids[id(block)]}]"
+        return f"[중첩 표: {table_ids[id(block)]}]" if include_media else ""
     if kind == "picture":
+        if not include_media:
+            return ""
         return render_picture_placeholder(block, picture_ids[id(block)])
     if kind == "list_item":
         own = list_item_display_text(block)
@@ -526,7 +534,12 @@ def render_markdown_cell_block(
         # 일반 문단의 text에는 보통 자식 텍스트가 이미 들어 있다. 표와 그림은
         # 별도 구조이므로 항상 추가하고, own이 없을 때만 일반 자식을 펼친다.
         if child_kind in {"table", "picture"} or not own:
-            rendered = render_markdown_cell_block(child, table_ids, picture_ids)
+            rendered = render_markdown_cell_block(
+                child,
+                table_ids,
+                picture_ids,
+                include_media=include_media,
+            )
             if rendered:
                 parts.append(rendered)
     return normalize_text("\n".join(parts))
@@ -600,26 +613,44 @@ def render_table_gfm(
             continue
         row_span = max(int(getattr(cell, "row_span", 1) or 1), 1)
         col_span = max(int(getattr(cell, "col_span", 1) or 1), 1)
+        cell_blocks = list(getattr(cell, "blocks", []) or [])
         values = [
             render_markdown_cell_block(child, table_ids, picture_ids)
-            for child in (getattr(cell, "blocks", []) or [])
+            for child in cell_blocks
         ]
         content = "\n".join(value for value in values if value)
-        if row_span > 1 or col_span > 1:
-            content = f"[병합 {row_span}행×{col_span}열] {content}".rstrip()
         escaped_content = escape_markdown_cell(content)
-        merge_reference = escape_markdown_cell(
-            f"[병합 {row_span}행×{col_span}열 계속: {row + 1}행 {col + 1}열 참조]"
-        )
 
-        # GFM에는 rowspan/colspan이 없다. 원점에는 전체 내용을, 나머지 칸에는
-        # 원점 참조를 넣는다. 이미지 URI까지 반복해 출력하지 않기 위함이다.
+        # GFM에는 rowspan/colspan이 없다. 병합 구조는 table_html이 보존하므로
+        # Markdown에는 사람이 읽는 주석(`[병합 …]`)을 넣지 않고 값을 그대로
+        # 반복해 채운다. 임베딩 본문에 원문에 없는 문자열을 넣지 않고, 각 행이
+        # 분류값을 갖춘 완결 행이 되어 행 단위 검색이 된다. PDF 표의
+        # forward-fill과 같은 방식이다.
+        #
+        # 다만 이미지와 중첩 표 참조는 부모 블록 안에 한 번만 있어야 하므로
+        # 반복하지 않고 원점 칸에만 남긴다.
+        if row_span > 1 or col_span > 1:
+            fill_values = [
+                render_markdown_cell_block(
+                    child,
+                    table_ids,
+                    picture_ids,
+                    include_media=False,
+                )
+                for child in cell_blocks
+            ]
+            escaped_fill = escape_markdown_cell(
+                "\n".join(value for value in fill_values if value)
+            )
+        else:
+            escaped_fill = escaped_content
+
         for target_row in range(row, min(row + row_span, rows)):
             for target_col in range(col, min(col + col_span, cols)):
                 if target_row == row and target_col == col:
                     grid[target_row][target_col] = escaped_content
                 elif not grid[target_row][target_col]:
-                    grid[target_row][target_col] = merge_reference
+                    grid[target_row][target_col] = escaped_fill
 
     lines = [
         "| " + " | ".join(grid[0]) + " |",

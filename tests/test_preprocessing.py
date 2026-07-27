@@ -282,8 +282,14 @@ class PreprocessingTests(unittest.TestCase):
         self.assertTrue(simple_content.startswith("| "))
         self.assertEqual(merged_mode, "gfm")
         self.assertTrue(merged_content.startswith("| "))
-        self.assertIn("[병합 1행×2열]", merged_content)
-        self.assertIn("1행 1열 참조", merged_content)
+        # 병합 구조는 table_html의 rowspan/colspan이 보존한다. Markdown에는
+        # 원문에 없는 주석을 넣지 않고 병합 값을 각 칸에 반복해 채운다.
+        self.assertNotIn("[병합", merged_content)
+        self.assertNotIn("참조]", merged_content)
+        merged_row = merged_content.splitlines()[0]
+        first_cell = merged_row.strip().strip("|").split("|")[0].strip()
+        self.assertTrue(first_cell)
+        self.assertEqual(merged_row.count(first_cell), 2)
         self.assertIn("&lt;table&gt;문자열&lt;/table&gt;", merged_content)
         self.assertNotIn("<table", merged_content)
         self.assertNotIn("<br>", merged_content)
@@ -347,8 +353,13 @@ class PreprocessingTests(unittest.TestCase):
         result = preprocess_document(source, rhwp_module=fake_rhwp)
 
         display_content = result.blocks[0]["display_content"]
+        # 병합 칸에는 텍스트만 반복하고 이미지 참조는 원점에 한 번만 남긴다.
         self.assertEqual(display_content.count("image://"), 1)
-        self.assertIn("병합 1행×2열 계속", display_content)
+        self.assertEqual(display_content.count("업무 구성"), 2)
+        # 주석 형태(`[병합 1행×2열]`, `… 참조]`)는 남지 않는다. 이미지 alt에
+        # "병합"이 들어갈 수 있으므로 주석 패턴만 정확히 검사한다.
+        self.assertNotIn("[병합 1행×2열]", display_content)
+        self.assertNotIn("참조]", display_content)
         self.assertNotIn("<img", display_content)
         self.assertEqual(result.tables[0]["render_mode"], "gfm")
 

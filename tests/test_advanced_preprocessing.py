@@ -77,7 +77,10 @@ def test_hwp_table_keeps_markdown_and_merged_cell_html() -> None:
 
     assert formats["vectorize_field"] == "table_markdown"
     assert "|" in formats["table_markdown"]
-    assert "[병합 2행×2열]" in formats["table_markdown"]
+    # Markdown에는 병합 주석을 넣지 않고 값을 반복해 채운다. 2행×2열 병합이므로
+    # 헤더 행과 데이터 행 모두에서 같은 값이 각 열에 채워진다.
+    assert "[병합" not in formats["table_markdown"]
+    assert formats["table_markdown"].count("공통 과업") == 4
     assert "<table" not in formats["table_markdown"]
     assert 'data-table-id="source:body:T000001"' in formats["table_html"]
     assert 'rowspan="2"' in formats["table_html"]
