@@ -6,9 +6,9 @@ header .statusbar span { color: rgba(255,255,255,.72); padding: 0 14px; border-r
 header .statusbar span:first-child { padding-left: 0; }
 header .statusbar .danger { color: #fca5a5; }
 header .statusbar .warning { color: #fcd34d; }
-.layout { grid-template-columns: 160px minmax(0, 1fr) 210px; min-height: calc(100vh - 80px); }
+.layout { grid-template-columns: 160px minmax(480px, 1fr) 8px var(--evidence-width, 360px); min-height: calc(100vh - 80px); }
 nav { padding: 14px 0; }
-.layout h2 { display: none; }
+.layout>nav>h2 { display: none; }
 .listSearch, .listControls, .uploadCard { margin-left: 12px; margin-right: 12px; }
 .listControls { flex-wrap: wrap; }
 .listControls select { width: calc(50% - 3px); }
@@ -28,4 +28,4 @@ nav { padding: 14px 0; }
 .timeline, .cards { margin-top: 0; }
 .card { border-radius: 10px; }
 .evidence { padding: 14px; gap: 10px; }
-@media(max-width:900px){.layout{grid-template-columns:150px minmax(0,1fr)}.evidence{display:none}.summaryGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:1000px){.layout{grid-template-columns:150px minmax(0,1fr)}.evidence,.evidenceResize{display:none}.summaryGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}

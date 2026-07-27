@@ -43,7 +43,17 @@ def pages() -> list[dict]:
 
 @router.get("/documents", response_model=list[DocumentSummary])
 def documents():
-    return [DocumentSummary(document_id=item["document_id"], title=item["title"], organization=item["organization"], difficulty=item.get("difficulty")) for item in manifest()["documents"]]
+    rows = []
+    for item in manifest()["documents"]:
+        pdf_path = Path(item.get("pdf_path", ""))
+        document_date = None
+        if pdf_path.is_file():
+            document_date = pdf_path.stat().st_mtime_ns
+        rows.append(DocumentSummary(
+            document_id=item["document_id"], title=item["title"], organization=item["organization"],
+            difficulty=item.get("difficulty"), document_date=str(document_date) if document_date else None,
+        ))
+    return rows
 
 
 @router.put("/documents/upload")

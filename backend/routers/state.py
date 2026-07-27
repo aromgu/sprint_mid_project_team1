@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from backend.models import DeliverableUpdate, EligibilityStatusUpdate
+from backend.models import DeliverableUpdate, EligibilityStatusUpdate, RiskStatusUpdate
 
 router = APIRouter(prefix="/api/state/{document_id}", tags=["state"])
 
@@ -15,6 +15,11 @@ def get_state(document_id: str, request: Request):
 @router.patch("/eligibility/{item_id}")
 def update_eligibility(document_id: str, item_id: str, payload: EligibilityStatusUpdate, request: Request):
     return request.app.state.state_service.update(document_id, "eligibility", item_id, payload.model_dump())
+
+
+@router.patch("/risk/{item_id}")
+def update_risk(document_id: str, item_id: str, payload: RiskStatusUpdate, request: Request):
+    return request.app.state.state_service.update(document_id, "risks", item_id, payload.model_dump())
 
 
 @router.patch("/deliverable/{item_id}")

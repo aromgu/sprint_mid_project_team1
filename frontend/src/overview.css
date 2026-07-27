@@ -1,5 +1,32 @@
-.summaryGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
-.summaryCard { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; min-height: 72px; }
-.summaryCard small { display: block; color: #64748b; font-size: 11px; margin-bottom: 8px; }
-.summaryCard strong { font-size: 15px; color: #0f172a; word-break: break-word; }
+.summaryGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px; }
+.overview .summaryCard { background: #fff; border: 1px solid #e2e8f0; border-top: 4px solid #2563eb; border-radius: 9px; padding: 16px 18px; min-height: 108px; }
+.overview .summaryCard small { display: block; color: #475569; font-size: 14px; font-weight: 700; line-height: 1.45; margin-bottom: 9px; }
+.overview .summaryCard strong { display: block; font-size: 22px; line-height: 1.35; color: #0f172a; word-break: break-word; }
+.overview .summaryCard>span { display: block; margin-top: 8px; color: #64748b; font-size: 12px; line-height: 1.5; }
+.overview .sectionTitle { font-size: 16px; font-weight: 700; letter-spacing: 0; text-transform: none; color: #1f2937; margin: 28px 0 12px; }
+.overview .card strong { font-size: 15px; line-height: 1.5; }
+.overview .card p { font-size: 14px; line-height: 1.7; }
+.overview .cardBody small, .overview .evidenceLink { font-size: 12px; line-height: 1.6; }
+.tabSummaryGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.tabSummaryGrid article { min-height: 150px; padding: 18px; border: 1px solid #dbe3ed; border-left: 4px solid #2563eb; border-radius: 9px; background: #fff; cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; }
+.tabSummaryGrid article:hover, .tabSummaryGrid article:focus { border-color: #2563eb; box-shadow: 0 5px 16px rgba(37, 99, 235, .12); outline: none; transform: translateY(-1px); }
+.tabSummaryGrid small { display: block; margin-bottom: 10px; color: #2563eb; font-size: 12px; font-weight: 800; letter-spacing: .06em; }
+.tabSummaryGrid strong { display: block; color: #0f172a; font-size: 18px; line-height: 1.45; }
+.tabSummaryGrid p { margin: 10px 0 0; color: #475569; font-size: 14px; line-height: 1.65; }
+.evidence blockquote { display: none; }
 @media (max-width: 900px) { .summaryGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.deliverablesView .sectionTitle span { margin-left: 6px; color: #64748b; font-size: 13px; }
+.deliverablesView .sectionDescription { margin: -7px 0 12px; color: #64748b; font-size: 13px; }
+.deliverableGroup + .deliverableGroup { margin-top: 32px; padding-top: 2px; border-top: 1px solid #e2e8f0; }
+.fileListToggle { display: none; }
+.fileListSort { width: calc(100% - 24px); margin: 0 12px 8px; border: 1px solid #40516a; border-radius: 6px; background: #172235; color: #fff; padding: 7px; font-size: 11px; }
+.layout > nav .listControls { display: none; }
+.layout.fileListCollapsed { grid-template-columns: 42px minmax(480px, 1fr) 8px var(--evidence-width, 360px); }
+.layout.fileListCollapsed > nav { padding: 0; overflow: hidden; }
+.layout.fileListCollapsed > nav > :not(.fileListToggle) { display: none; }
+.layout.fileListCollapsed .fileListToggle { display: flex; }
+.fileListToggle { flex-direction: column; align-items: center; gap: 8px; width: 42px; height: 132px; padding: 14px 6px; border: 0; background: #202d40; color: #dbe5f2; font-size: 11px; font-weight: 700; line-height: 1.25; writing-mode: vertical-rl; cursor: pointer; }
+.fileListToggle span { font-size: 16px; writing-mode: horizontal-tb; }
+.fileListToggle:hover { color: #fff; background: #2f6fe4; }
+.layout:not(.fileListCollapsed) .fileListToggle { display: flex; height: 42px; width: 100%; flex-direction: row; justify-content: center; writing-mode: horizontal-tb; }
+@media(max-width:1000px){.layout.fileListCollapsed{grid-template-columns:42px minmax(0,1fr)}}

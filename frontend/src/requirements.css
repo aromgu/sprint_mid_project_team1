@@ -1,0 +1,36 @@
+.requirementsView { display: flex; flex-direction: column; gap: 18px; }
+.requirementsIntro { display: flex; justify-content: space-between; gap: 24px; padding: 22px; border: 1px solid #dbeafe; border-left: 4px solid #2563eb; border-radius: 9px; background: linear-gradient(135deg, #f8fbff, #eef6ff); }
+.requirementsIntro .eyebrow { font-size: 12px; }
+.requirementsIntro h2 { margin: 6px 0 8px; font-size: 20px; line-height: 1.4; }
+.requirementsIntro p { margin: 0; color: #475569; font-size: 14px; line-height: 1.7; }
+.requirementSummary { min-width: 145px; padding-left: 20px; border-left: 1px solid #bfdbfe; display: flex; flex-direction: column; justify-content: center; }
+.requirementSummary strong { color: #1d4ed8; font-size: 30px; line-height: 1; }
+.requirementSummary span { margin-top: 7px; font-size: 14px; font-weight: 700; }
+.requirementSummary small { margin-top: 8px; color: #64748b; font-size: 12px; }
+.requirementToolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.requirementToolbar>input { width: 240px; border: 1px solid #d1d5db; border-radius: 7px; padding: 10px 12px; font-size: 13px; }
+.requirementGroupTabs { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+.flowLabel { margin-right: 4px; color: #475569; font-size: 12px; font-weight: 700; }
+.requirementGroupTabs button { display: flex; align-items: center; gap: 7px; border: 1px solid #dbe3ed; border-radius: 18px; padding: 8px 12px; background: #fff; color: #475569; font-size: 13px; cursor: pointer; }
+.requirementGroupTabs button b { min-width: 20px; padding: 2px 6px; border-radius: 9px; background: #f1f5f9; font-size: 11px; }
+.requirementGroupTabs button.active { border-color: #2563eb; background: #2563eb; color: #fff; }
+.requirementGroupTabs button.active b { background: rgba(255,255,255,.2); }
+.requirementSection { overflow: hidden; border: 1px solid #e2e8f0; border-radius: 11px; background: #fff; }
+.requirementSectionHead { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; }
+.requirementSectionHead h3 { margin: 0 0 5px; font-size: 16px; line-height: 1.4; }
+.requirementSectionHead p { margin: 0; color: #64748b; font-size: 13px; line-height: 1.5; }
+.requirementSectionHead>span { color: #2563eb; font-size: 12px; font-weight: 700; }
+.requirementList { display: flex; flex-direction: column; }
+.requirementItem { display: flex; align-items: center; border-bottom: 1px solid #eef2f7; }
+.requirementItem:last-child { border-bottom: 0; }
+.requirementItem:hover { background: #f8fbff; }
+.requirementMain { display: grid; grid-template-columns: 82px 1fr; gap: 12px; flex: 1; border: 0; padding: 17px 18px; background: transparent; text-align: left; cursor: pointer; }
+.requirementId { color: #2563eb; font: 700 12px/1.5 ui-monospace, SFMono-Regular, monospace; }
+.requirementMain strong { font-size: 15px; line-height: 1.5; }
+.requirementMain p { margin: 6px 0 10px; color: #475569; font-size: 14px; line-height: 1.7; }
+.requirementMeta { display: flex; gap: 6px; flex-wrap: wrap; }
+.requirementMeta span { padding: 4px 7px; border-radius: 4px; background: #f1f5f9; color: #64748b; font-size: 11px; }
+.requirementMeta .priority-high { background: #fef2f2; color: #b91c1c; }
+.requirementMeta .priority-medium { background: #fff7ed; color: #c2410c; }
+.requirementItem>.evidenceLink { flex: 0 0 auto; margin-right: 16px; font-size: 12px; }
+@media (max-width: 760px) { .requirementsIntro, .requirementToolbar { align-items: stretch; flex-direction: column; } .requirementSummary { padding: 12px 0 0; border-left: 0; border-top: 1px solid #bfdbfe; } .requirementToolbar>input { width: 100%; } .requirementMain { grid-template-columns: 1fr; } }

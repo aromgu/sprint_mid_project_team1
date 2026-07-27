@@ -29,7 +29,12 @@ def overview(document_id: str, request: Request):
 @router.get("/risks")
 def risks(document_id: str, request: Request):
     try:
-        return client(request).risks(document_id)
+        result = client(request).risks(document_id)
+        saved = request.app.state.state_service.get(document_id).get("risks", {})
+        for item in result.risks:
+            if item.id in saved:
+                item.user_status = saved[item.id].get("user_status", item.user_status)
+        return result
     except Exception as exc:
         logger.exception("risks analysis failed for document_id=%s", document_id)
         raise HTTPException(status_code=502, detail=f"analysis failed: {type(exc).__name__}") from exc
