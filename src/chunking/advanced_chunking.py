@@ -88,6 +88,17 @@ FORBIDDEN_IMAGE_PAYLOAD = re.compile(
     re.IGNORECASE,
 )
 HTML_TABLE_TAG = re.compile(r"</?(?:table|thead|tbody|tr|th|td)\b", re.IGNORECASE)
+# BM25 평문에서 걷어낼 내부 참조 표시. 전처리가 셀 안에 넣는 중첩 표 ID와 이미지
+# 참조는 사람이 읽을 구조 안내이지 검색어가 아니다. 그대로 두면 표 ID가
+# ['중첩','표','3','c','832','bf','48','d','677859','body','t','000003']처럼
+# 토큰으로 쪼개져 어휘 색인을 오염시킨다. Dense 본문(table_markdown)에는 구조
+# 정보로 남겨두고 BM25 입력에서만 제거한다.
+NESTED_TABLE_REFERENCE = re.compile(r"\[중첩 표:[^\]]*\]")
+IMAGE_REFERENCE = re.compile(r"!\[[^\]]*\]\(image://[^)]*\)")
+# 참조를 걷어내면 셀에 줄바꿈 치환 기호(``/``)나 구두점만 남을 수 있다. 그런 셀은
+# 검색어가 없으므로 평문에서 버린다. 남겨 두면 "평문은 있는데 토큰은 0개"인
+# 어정쩡한 상태가 되어 BM25 계약 검사와 어긋난다.
+SEPARATOR_ONLY = re.compile(r"^[\s/|·․‧∙⋅\-–—.,:;]+$")
 METADATA_PREFIX = re.compile(r"^\[문서\].*\n\[위치\].*\n\[유형\]", re.DOTALL)
 PAGE_MARKER_ATOM = re.compile(r"- *([1-9][0-9]{0,2}) *-")
 PAGE_MARKER_ONLY = re.compile(r"(?:- *[1-9][0-9]{0,2} *-)(?: *- *[1-9][0-9]{0,2} *-)*")
@@ -1172,7 +1183,13 @@ def table_markdown_to_plain_text(markdown: str) -> str:
     팀 회의 결정(2026-07-27)으로 표도 BM25 대상이 됐다. Dense 본문은 구조가 보이는
     Markdown을 그대로 쓰고, 어휘 검색용으로는 파이프와 구분선을 걷어낸 평문을 같은
     청크의 별도 필드에 둔다. 셀 값 사이는 공백으로 이어 붙인다.
+
+    중첩 표 ID와 이미지 참조는 내부 식별자라 검색어가 아니므로 함께 제거한다.
+    실측(표 12,428개): 중첩 표 참조 554개, 이미지 참조 88개에서 ID가 토큰으로
+    쪼개져 약 27,000개의 무의미한 토큰이 들어가고 있었다.
     """
+    markdown = NESTED_TABLE_REFERENCE.sub(" ", markdown)
+    markdown = IMAGE_REFERENCE.sub(" ", markdown)
     lines: list[str] = []
     for raw_line in markdown.splitlines():
         line = raw_line.strip()
@@ -1180,12 +1197,17 @@ def table_markdown_to_plain_text(markdown: str) -> str:
             continue
         if not line.startswith("|"):
             # 캡션·중첩 표 제목처럼 표 밖의 줄도 검색 대상에 포함한다.
-            lines.append(line)
+            if not SEPARATOR_ONLY.match(line):
+                lines.append(line)
             continue
         cells = [cell.strip() for cell in line.strip("|").split("|")]
         if all(not cell or set(cell) <= set("-: ") for cell in cells):
             continue  # 구분선
-        values = [cell.replace("\\|", "|") for cell in cells if cell]
+        values = [
+            cell.replace("\\|", "|")
+            for cell in cells
+            if cell and not SEPARATOR_ONLY.match(cell)
+        ]
         if values:
             lines.append(" ".join(values))
     return normalize_text_for_embedding("\n".join(lines)).strip()
@@ -2131,22 +2153,33 @@ def validate_advanced_chunks(
                 locations_valid &= chunk_scope in scopes
 
         if chunk["content_type"] == "table":
-            # 표는 KSS를 쓰지 않지만 BM25는 평문 필드로 대상에 포함한다.
+            # 표는 KSS를 쓰지 않는다. BM25는 평문이 있을 때만 대상이 된다.
             table_contract_valid &= chunk.get("kss_applied") is False
-            table_contract_valid &= chunk.get("bm25_source_field") == "table_plain_text"
             plain_text = chunk.get("table_plain_text")
-            table_contract_valid &= isinstance(plain_text, str) and bool(plain_text)
+            table_contract_valid &= isinstance(plain_text, str)
             table_contract_valid &= plain_text == table_markdown_to_plain_text(
                 str(chunk["embedding_text"])
             )
+            if plain_text:
+                table_contract_valid &= (
+                    chunk.get("bm25_source_field") == "table_plain_text"
+                )
+            else:
+                # 내용이 중첩 표·이미지 참조뿐이면 평문이 빈다. Dense만 색인한다.
+                table_contract_valid &= chunk.get("bm25_source_field") is None
+                table_contract_valid &= chunk.get("bm25_eligible") is False
+                table_contract_valid &= not chunk.get("bm25_tokens")
             table_contract_valid &= chunk.get("table_id") == source_blocks[0].get(
                 "table_id"
             )
-            table_contract_valid &= chunk.get("bm25_eligible") is True
-            table_contract_valid &= chunk.get("bm25_pos_policy") == BM25_POS_POLICY_ID
-            table_contract_valid &= (
-                chunk.get("bm25_token_normalization") == BM25_TOKEN_NORMALIZATION
-            )
+            if plain_text:
+                table_contract_valid &= chunk.get("bm25_eligible") is True
+                table_contract_valid &= (
+                    chunk.get("bm25_pos_policy") == BM25_POS_POLICY_ID
+                )
+                table_contract_valid &= (
+                    chunk.get("bm25_token_normalization") == BM25_TOKEN_NORMALIZATION
+                )
             table_contract_valid &= isinstance(chunk.get("bm25_tokens"), list)
             table_contract_valid &= chunk.get("bm25_token_count") == len(
                 chunk.get("bm25_tokens") or []

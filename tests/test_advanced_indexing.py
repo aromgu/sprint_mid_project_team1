@@ -244,16 +244,17 @@ def test_audit_rejects_invalid_text_embedding_contract(
         advanced_module.audit_advanced_input(input_path)
 
 
-def test_audit_rejects_table_without_bm25_tokens(
+def test_audit_rejects_table_bm25_fields_that_disagree(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """표가 BM25 대상에서 빠지면 검증에 실패한다."""
+    """평문이 있는데 BM25만 끄는 등 필드가 서로 어긋나면 실패한다."""
 
     row = make_table_row()
     row["bm25_eligible"] = False
     row["bm25_tokens"] = []
     row["bm25_token_count"] = 0
+    # table_plain_text는 남겨 두어 "평문이 있는데 BM25는 꺼짐" 모순을 만든다.
     input_path = tmp_path / "invalid-table.jsonl.gz"
     write_gzip_jsonl(input_path, [row])
     register_test_contract(input_path, [row], monkeypatch)
@@ -262,19 +263,47 @@ def test_audit_rejects_table_without_bm25_tokens(
         advanced_module.audit_advanced_input(input_path)
 
 
+def test_audit_accepts_table_without_extractable_plain_text(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """내용이 중첩 표 참조뿐인 표는 BM25에서 빠져도 유효하다.
+
+    평문이 비면 청킹이 bm25 필드를 모두 끈다. Dense는 그대로 색인하므로 청크
+    자체는 유효하고, 감사도 이 상태를 받아들여야 한다.
+    """
+
+    row = make_table_row()
+    row["bm25_eligible"] = False
+    row["bm25_source_field"] = None
+    row["table_plain_text"] = ""
+    row["bm25_tokens"] = []
+    row["bm25_token_count"] = 0
+    input_path = tmp_path / "table-no-plain.jsonl.gz"
+    write_gzip_jsonl(input_path, [row])
+    register_test_contract(input_path, [row], monkeypatch)
+
+    audit = advanced_module.audit_advanced_input(input_path)
+
+    assert audit.table_chunk_count == 1
+    assert audit.bm25_chunk_count == 0
+    assert audit.bm25_token_total == 0
+
+
 def test_audit_rejects_table_missing_plain_text(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """표 BM25 입력 평문이 비면 검증에 실패한다."""
+    """BM25를 켜 놓고 평문만 비우면 필드가 어긋나 실패한다."""
 
     row = make_table_row()
     row["table_plain_text"] = ""
+    # bm25_eligible과 토큰은 그대로 두어 "토큰은 있는데 평문이 없는" 모순을 만든다.
     input_path = tmp_path / "invalid-plain.jsonl.gz"
     write_gzip_jsonl(input_path, [row])
     register_test_contract(input_path, [row], monkeypatch)
 
-    with pytest.raises(ValueError, match="평문"):
+    with pytest.raises(ValueError, match="표 BM25"):
         advanced_module.audit_advanced_input(input_path)
 
 

@@ -107,11 +107,33 @@ ADVANCED_V2_TABLE_WHOLE_INPUT_CONTRACT = AdvancedInputContract(
     ),
     corpus_id="advanced_v2",
 )
+# HWP 텍스트를 section_path 단위로 묶고(문단 누적·overlap 생성), 목차 점선을 제거하고,
+# 표 병합 값을 채우고, 표 평문을 BM25 대상에 넣은 청크다. 표 BM25 평문에서 중첩 표·
+# 이미지 내부 참조까지 걷어낸 뒤의 값이다(chunks_v5b).
+ADVANCED_V2_SECTION_PACKED_INPUT_CONTRACT = AdvancedInputContract(
+    name="advanced_v2_section_packed_table_bm25",
+    input_sha256="afb420972294495a286454fa67f2ac3b414f2532565cfd7d614120bb1b500c3a",
+    chunk_count=17_950,
+    document_count=98,
+    total_tokens=10_111_593,
+    text_chunk_count=5_522,
+    table_chunk_count=12_428,
+    # 표도 BM25 대상이다. 내용이 중첩 표 참조뿐이어서 평문이 빈 표 23개는 제외된다.
+    bm25_chunk_count=17_927,
+    bm25_token_total=3_846_825,
+    schema_version="rfp_advanced_chunk_v2",
+    strategy_id=(
+        "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_"
+        "no_text_newline_cl100k_base_512_51_v2"
+    ),
+    corpus_id="advanced_v2",
+)
 INPUT_CONTRACTS_BY_SHA256 = {
     contract.input_sha256: contract
     for contract in (
         ADVANCED_V2_INPUT_CONTRACT,
         ADVANCED_V2_TABLE_WHOLE_INPUT_CONTRACT,
+        ADVANCED_V2_SECTION_PACKED_INPUT_CONTRACT,
     )
 }
 
@@ -347,14 +369,20 @@ def _validate_bm25_contract(
             raise ValueError(f"일반 텍스트 BM25 입력 필드 오류: {chunk_id}")
         return 1, len(tokens)
 
-    # 표: KSS는 쓰지 않고 평문으로 BM25만 만든다.
-    if bm25_eligible is not True or kss_applied is not False or not tokens:
-        raise ValueError(f"표 BM25·KSS 계약 오류: {chunk_id}")
-    if row.get("bm25_source_field") != "table_plain_text":
-        raise ValueError(f"표 BM25 입력 필드 오류: {chunk_id}")
-    if not str(row.get("table_plain_text") or "").strip():
-        raise ValueError(f"표 BM25 평문이 비었습니다: {chunk_id}")
-    return 1, len(tokens)
+    # 표: KSS는 쓰지 않는다. BM25는 평문이 있을 때만 만든다.
+    if kss_applied is not False:
+        raise ValueError(f"표는 KSS 대상이 될 수 없습니다: {chunk_id}")
+    plain_text = str(row.get("table_plain_text") or "").strip()
+    source_field = row.get("bm25_source_field")
+    if bm25_eligible is True:
+        if not tokens or source_field != "table_plain_text" or not plain_text:
+            raise ValueError(f"표 BM25 계약 오류: {chunk_id}")
+        return 1, len(tokens)
+    # 내용이 중첩 표·이미지 참조뿐인 표는 평문이 비어 BM25 대상이 아니다.
+    # Dense는 그대로 색인하므로 청크 자체는 유효하다.
+    if bm25_eligible is not False or tokens or source_field is not None or plain_text:
+        raise ValueError(f"표 BM25 제외 계약 오류: {chunk_id}")
+    return 0, 0
 
 
 def audit_advanced_input(

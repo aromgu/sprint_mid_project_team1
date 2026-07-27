@@ -38,6 +38,7 @@ from src.chunking.advanced_chunking import (
     extract_page_marker_numbers,
     normalize_text_for_embedding,
     pack_sentence_spans,
+    table_markdown_to_plain_text,
     validate_advanced_chunks,
     validate_advanced_config,
 )
@@ -1142,6 +1143,33 @@ def test_oversized_single_sentence_uses_token_fallback_without_loss() -> None:
         part["text"][part["overlap_actual_tokens"] :] for part in packed[1:]
     )
     assert rebuilt == source
+
+
+def test_table_plain_text_drops_internal_references() -> None:
+    """BM25 평문에서 중첩 표 ID와 이미지 참조를 걷어낸다.
+
+    내부 식별자는 검색어가 아니라 구조 안내다. 그대로 두면 표 ID가 토큰으로
+    쪼개져 어휘 색인을 오염시킨다. Dense 본문에는 남기고 평문에서만 뺀다.
+    """
+    markdown = "\n".join(
+        [
+            "| 구분 | 내용 |",
+            "| --- | --- |",
+            "| 개요 | [중첩 표: 65c9785a157c8f55:body:T000003] |",
+            "| 도식 | ![이미지 abc:body:I000002](image://abc:body:I000002) |",
+            "| 기간 | 90일 |",
+        ]
+    )
+
+    plain = table_markdown_to_plain_text(markdown)
+
+    assert "중첩 표" not in plain
+    assert "T000003" not in plain
+    assert "image://" not in plain
+    assert "I000002" not in plain
+    # 실제 셀 값은 남는다.
+    assert "구분" in plain and "개요" in plain and "90일" in plain
+    assert "|" not in plain
 
 
 def test_table_larger_than_text_limit_stays_in_one_chunk() -> None:
