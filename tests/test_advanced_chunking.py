@@ -1505,3 +1505,103 @@ def test_validation_rejects_table_markdown_not_derived_from_source() -> None:
 
     assert invalid["overall_pass"] is False
     assert invalid["gates"]["table_chunks_match_source_markdown"] is False
+
+
+def test_semantic_cut_splits_at_requested_sentence_boundary() -> None:
+    """의미 경계로 지정한 문장 뒤에서 상한 전에 자른다."""
+    # 문장 4개, 각 300토큰. 상한 1024면 3문장(900)까지 들어가지만
+    # 2번째 문장 뒤를 의미 경계로 주면 그 앞에서 끊는다.
+    parts = ["가" * 300, "나" * 300, "다" * 300, "라" * 300]
+    text = "".join(parts)
+    spans = align_kss_sentences(
+        text, parts, boundary_id="source-001:section:0:paragraph:1"
+    )
+    config = AdvancedChunkConfig(
+        max_tokens=1024,
+        overlap_tokens=0,
+        min_tail_tokens=0,
+        semantic_min_tokens=256,
+    )
+
+    without = pack_sentence_spans(text, spans, codec=CODEC, config=config)
+    with_cut = pack_sentence_spans(
+        text, spans, codec=CODEC, config=config, semantic_cut_after={2}
+    )
+
+    # 의미 경계가 없으면 상한까지 채운다.
+    assert [part["sentence_end"] for part in without] == [3, 4]
+    # 의미 경계를 주면 2번째 문장 뒤에서 끊는다.
+    assert [part["sentence_end"] for part in with_cut] == [2, 4]
+    assert [len(CODEC.encode(part["text"])) for part in with_cut] == [600, 600]
+    # overlap 0이므로 겹치지 않고 원문을 정확히 한 번 덮는다.
+    assert "".join(part["text"] for part in with_cut) == text
+
+
+def test_semantic_cut_is_skipped_below_minimum() -> None:
+    """하한 미만이 되는 절단은 건너뛰고 다음 경계를 본다."""
+    # 첫 문장이 100토큰뿐이라 하한(256) 미만이다. 1번 뒤에서 자르면 100토큰
+    # 청크가 생기므로 자르지 않고, 3번 뒤에서 자른다.
+    parts = ["가" * 100, "나" * 300, "다" * 300, "라" * 300]
+    text = "".join(parts)
+    spans = align_kss_sentences(
+        text, parts, boundary_id="source-001:section:0:paragraph:2"
+    )
+    config = AdvancedChunkConfig(
+        max_tokens=1024,
+        overlap_tokens=0,
+        min_tail_tokens=0,
+        semantic_min_tokens=256,
+    )
+
+    packed = pack_sentence_spans(
+        text, spans, codec=CODEC, config=config, semantic_cut_after={1, 3}
+    )
+
+    # 1번 뒤 절단은 100토큰이라 건너뛴다. 3번 뒤에서 자른다.
+    assert [part["sentence_end"] for part in packed] == [3, 4]
+    assert [len(CODEC.encode(part["text"])) for part in packed] == [700, 300]
+
+
+def test_semantic_cut_is_skipped_when_tail_would_be_short() -> None:
+    """자르고 남는 꼬리가 하한 미만이면 그 경계에서 자르지 않는다."""
+    # 2번 뒤에서 자르면 꼬리가 100토큰뿐이다. 짧은 청크를 만들지 않는다.
+    parts = ["가" * 300, "나" * 300, "다" * 100]
+    text = "".join(parts)
+    spans = align_kss_sentences(
+        text, parts, boundary_id="source-001:section:0:paragraph:3"
+    )
+    config = AdvancedChunkConfig(
+        max_tokens=1024,
+        overlap_tokens=0,
+        min_tail_tokens=0,
+        semantic_min_tokens=256,
+    )
+
+    packed = pack_sentence_spans(
+        text, spans, codec=CODEC, config=config, semantic_cut_after={2}
+    )
+
+    assert len(packed) == 1
+    assert packed[0]["text"] == text
+
+
+def test_semantic_cut_still_honors_token_ceiling() -> None:
+    """의미 경계가 없어도 상한은 그대로 지킨다."""
+    parts = ["가" * 600, "나" * 600]
+    text = "".join(parts)
+    spans = align_kss_sentences(
+        text, parts, boundary_id="source-001:section:0:paragraph:4"
+    )
+    config = AdvancedChunkConfig(
+        max_tokens=1024,
+        overlap_tokens=0,
+        min_tail_tokens=0,
+        semantic_min_tokens=256,
+    )
+
+    packed = pack_sentence_spans(
+        text, spans, codec=CODEC, config=config, semantic_cut_after=frozenset()
+    )
+
+    assert [len(CODEC.encode(part["text"])) for part in packed] == [600, 600]
+    assert all(len(CODEC.encode(part["text"])) <= config.max_tokens for part in packed)

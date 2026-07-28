@@ -33,7 +33,7 @@ import statistics
 import unicodedata
 import warnings
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Container, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
@@ -173,6 +173,9 @@ class AdvancedChunkConfig:
     min_tail_tokens: int = DEFAULT_MIN_TAIL_TOKENS
     model_name: str = DEFAULT_MODEL
     encoding_name: str = DEFAULT_ENCODING
+    # 케이스 3 시멘틱 청킹의 청크 하한이다. 0이면 하한을 적용하지 않는다.
+    # 고정 크기 조건에서는 쓰이지 않는다.
+    semantic_min_tokens: int = 0
     strategy_id: str = ""
 
     def __post_init__(self) -> None:
@@ -1071,13 +1074,47 @@ def _repair_short_final_chunk(
     raise ValueError("512토큰 상한을 지키면서 짧은 마지막 청크를 보정하지 못했습니다")
 
 
+def _semantic_cut_is_safe(
+    budget_text: str,
+    spans: Sequence[SentenceSpan],
+    chunk_char_start: int,
+    end_index: int,
+    codec: TokenCodec,
+    config: AdvancedChunkConfig,
+) -> bool:
+    """의미 경계에서 자를 때 양쪽이 모두 하한을 만족하는지 본다.
+
+    지금 청크가 하한 미만이면 아직 자를 때가 아니다. 자르고 남은 꼬리가 하한
+    미만이면 짧은 청크가 생기므로 이 경계는 건너뛰고 다음 경계를 본다. 꼬리가
+    상한을 넘으면 어차피 다시 나뉘므로 꼬리 조건을 적용하지 않는다.
+    """
+    minimum = config.semantic_min_tokens
+    if minimum <= 0:
+        return True
+    current = len(
+        codec.encode(budget_text[chunk_char_start : spans[end_index - 1].char_end])
+    )
+    if current < minimum:
+        return False
+    tail = len(codec.encode(budget_text[spans[end_index].char_start :]))
+    return tail >= minimum or tail > config.max_tokens
+
+
 def pack_sentence_spans(
     stream_text: str | Sequence[SentenceSpan],
     sentences: Sequence[SentenceSpan] | None = None,
     codec: TokenCodec | None = None,
     config: AdvancedChunkConfig | None = None,
+    *,
+    semantic_cut_after: Container[int] | None = None,
 ) -> list[PackedTextChunk]:
-    """KSS 문장을 512 안에 묶고 가능한 온전한 문장 suffix를 반복한다."""
+    """KSS 문장을 상한 안에 묶고 가능한 온전한 문장 suffix를 반복한다.
+
+    ``semantic_cut_after``를 주면 그 ``sentence_index`` 뒤에서 상한 전에도 자른다
+    (케이스 3 시멘틱 청킹). ``config.semantic_min_tokens`` 미만이 되는 절단은
+    하지 않으며, 자르고 남은 꼬리도 그 값 이상이어야 한다. ``None``이면 기존
+    고정 크기 동작과 완전히 같다.
+    """
     selected_config = config or AdvancedChunkConfig()
     if codec is None:
         raise ValueError("문장 packing에 TokenCodec이 필요합니다")
@@ -1136,6 +1173,21 @@ def pack_sentence_spans(
             if len(codec.encode(candidate)) > selected_config.max_tokens:
                 break
             end_index += 1
+            if semantic_cut_after is None or end_index >= len(selected_sentences):
+                continue
+            accepted = selected_sentences[end_index - 1]
+            if accepted.sentence_index not in semantic_cut_after:
+                continue
+            if not _semantic_cut_is_safe(
+                selected_budget_text,
+                selected_sentences,
+                chunk_char_start,
+                end_index,
+                codec,
+                selected_config,
+            ):
+                continue
+            break
         if end_index == start_index:
             if pending_overlap_char_start is not None:
                 # overlap 꼬리까지 붙이면 문장 하나도 상한에 못 들어간다.
