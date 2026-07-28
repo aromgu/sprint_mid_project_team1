@@ -28,6 +28,7 @@ KSS는 내부 공백을 정규화할 수 있다. 따라서 KSS 반환 문자열�
 from __future__ import annotations
 
 import importlib.metadata
+import math
 import re
 import statistics
 import unicodedata
@@ -60,6 +61,22 @@ def strategy_id_for(max_tokens: int, overlap_tokens: int) -> str:
     조건마다 결과 폴더와 컬렉션이 달라지므로 그 사고는 두 실험을 섞어 버린다.
     """
     return f"{STRATEGY_BASE}_{max_tokens}_{overlap_tokens}_v2"
+
+
+def semantic_strategy_id_for(
+    threshold_label: str,
+    max_tokens: int,
+    overlap_tokens: int,
+) -> str:
+    """시멘틱 임계값·토큰 조건이 모두 드러나는 전략 ID를 만든다."""
+    normalized_label = threshold_label.strip().casefold()
+    if not normalized_label or not re.fullmatch(r"[a-z0-9_-]+", normalized_label):
+        raise ValueError(
+            "시멘틱 임계값 이름은 영문 소문자·숫자·밑줄·하이픈만 허용합니다"
+        )
+    return (
+        f"{STRATEGY_BASE}_semantic_{normalized_label}_{max_tokens}_{overlap_tokens}_v2"
+    )
 
 
 CORPUS_ID = "advanced_v2"
@@ -176,6 +193,10 @@ class AdvancedChunkConfig:
     # 케이스 3 시멘틱 청킹의 청크 하한이다. 0이면 하한을 적용하지 않는다.
     # 고정 크기 조건에서는 쓰이지 않는다.
     semantic_min_tokens: int = 0
+    # 시멘틱 청킹 재현에 필요한 거리 임계값과 사람이 읽는 백분위 이름이다.
+    # 고정 크기 청킹은 둘 다 None으로 두므로 기존 결과가 바뀌지 않는다.
+    semantic_distance_threshold: float | None = None
+    semantic_threshold_label: str | None = None
     strategy_id: str = ""
 
     def __post_init__(self) -> None:
@@ -350,6 +371,20 @@ def validate_advanced_config(config: AdvancedChunkConfig) -> None:
         raise ValueError("overlap_tokens는 0 이상이고 max_tokens보다 작아야 합니다")
     if not 0 <= config.min_tail_tokens <= config.max_tokens:
         raise ValueError("min_tail_tokens는 0 이상이고 max_tokens 이하여야 합니다")
+    semantic_values_are_paired = (config.semantic_distance_threshold is None) is (
+        config.semantic_threshold_label is None
+    )
+    if not semantic_values_are_paired:
+        raise ValueError("시멘틱 거리 임계값과 임계값 이름은 함께 설정해야 합니다")
+    if config.semantic_distance_threshold is not None:
+        if not math.isfinite(config.semantic_distance_threshold):
+            raise ValueError("시멘틱 거리 임계값은 유한한 수여야 합니다")
+        if not 0 <= config.semantic_distance_threshold <= 2:
+            raise ValueError("코사인 거리 임계값은 0 이상 2 이하여야 합니다")
+        if not str(config.semantic_threshold_label or "").strip():
+            raise ValueError("시멘틱 임계값 이름은 비어 있을 수 없습니다")
+        if config.semantic_min_tokens <= 0:
+            raise ValueError("시멘틱 청킹은 semantic_min_tokens가 양수여야 합니다")
     if not config.model_name or not config.encoding_name or not config.strategy_id:
         raise ValueError("모델·인코딩·전략 ID는 비어 있을 수 없습니다")
 
@@ -1486,6 +1521,9 @@ def build_advanced_chunk_record(
         "chunk_size_tokens": applicable_max_tokens,
         "chunk_overlap_target_tokens": config.overlap_tokens,
         "min_tail_tokens": config.min_tail_tokens,
+        "semantic_min_tokens": config.semantic_min_tokens,
+        "semantic_distance_threshold": config.semantic_distance_threshold,
+        "semantic_threshold_label": config.semantic_threshold_label,
         "overlap_actual_tokens": overlap_actual_tokens,
         "overlap_sentence_count": overlap_sentence_count,
         "tokenizer_model": codec.model_name,
@@ -1523,6 +1561,9 @@ def build_advanced_chunk_record(
         "kss_applied": is_text,
         "kss_boundary_type": boundary_type,
         "kss_boundary_id": boundary_id,
+        # 텍스트 stream에서 실제 거리 경계가 적용되면 sentence_fields가
+        # True로 덮어쓴다. 표와 고정 크기 텍스트는 항상 False다.
+        "semantic_boundary_cut": False,
         "bm25_eligible": bm25_enabled,
         "bm25_tokenizer": "kiwipiepy" if bm25_enabled else None,
         "bm25_tokenizer_version": EXPECTED_KIWI_VERSION if bm25_enabled else None,
@@ -1679,13 +1720,25 @@ def chunk_advanced_text_stream(
     config: AdvancedChunkConfig,
     sentence_splitter: SentenceSplitter | Callable[[str], Sequence[str]],
     kiwi_tokenizer: Bm25Tokenizer | Callable[[str], Sequence[Any]],
+    semantic_cut_after: Container[int] | None = None,
 ) -> list[dict[str, Any]]:
-    """한 위치 stream에 KSS→문장 packing→Kiwi를 순서대로 적용한다."""
+    """한 위치 stream에 KSS→문장 packing→Kiwi를 순서대로 적용한다.
+
+    ``semantic_cut_after``가 ``None``이면 기존 고정 크기 청킹이고, 정수
+    collection이면 해당 문장 뒤의 거리 경계를 시멘틱 절단 후보로 사용한다.
+    빈 collection도 "시멘틱 모드이지만 이 stream에는 후보가 없음"을 뜻한다.
+    """
     resolved = resolve_stream_sentences(document, stream, sentence_splitter)
     sentences = list(resolved.spans)
     alignment_fallback = resolved.alignment_fallback
     sanitized_character_count = resolved.sanitized_character_count
-    packed = pack_sentence_spans(stream.text, sentences, codec, config)
+    packed = pack_sentence_spans(
+        stream.text,
+        sentences,
+        codec,
+        config,
+        semantic_cut_after=semantic_cut_after,
+    )
     alignment_flags: list[str] = []
     if sanitized_character_count:
         alignment_flags.append("kss_input_sanitized_private_format_or_decorative")
@@ -1717,6 +1770,13 @@ def chunk_advanced_text_stream(
             extra_flags.append("token_slice_overlap_fallback")
         if part.short_tail_adjustment_mode == "merged_with_previous":
             extra_flags.append("short_tail_merged_with_previous")
+        semantic_boundary_cut = (
+            semantic_cut_after is not None
+            and part.sentence_end in semantic_cut_after
+            and part.char_end < len(stream.text)
+        )
+        if semantic_boundary_cut:
+            extra_flags.append("semantic_distance_boundary")
         new_char_start = max(covered_char_end, part.char_start)
         new_content_token_count = len(
             codec.encode(
@@ -1772,6 +1832,7 @@ def chunk_advanced_text_stream(
                     "kss_stream_sanitized_character_count": (sanitized_character_count),
                     "kss_alignment_fallback": alignment_fallback,
                     "kss_alignment_status": alignment_status,
+                    "semantic_boundary_cut": semantic_boundary_cut,
                 },
                 extra_quality_flags=extra_flags,
             )
@@ -2060,6 +2121,7 @@ def build_advanced_chunk_corpus(
     config: AdvancedChunkConfig | None = None,
     sentence_splitter: SentenceSplitter | Callable[[str], Sequence[str]] | None = None,
     kiwi_tokenizer: Bm25Tokenizer | Callable[[str], Sequence[Any]] | None = None,
+    semantic_cut_after_by_stream: Mapping[str, Container[int]] | None = None,
 ) -> list[dict[str, Any]]:
     """Advanced 문서·블록 전체를 결정적인 순서의 청크 corpus로 만든다."""
     selected_config = config or AdvancedChunkConfig()
@@ -2070,6 +2132,9 @@ def build_advanced_chunk_corpus(
     )
     selected_splitter = sentence_splitter or KssSentenceSplitter()
     selected_kiwi = kiwi_tokenizer or KiwiBm25Tokenizer()
+    semantic_mode = selected_config.semantic_distance_threshold is not None
+    if semantic_mode is not (semantic_cut_after_by_stream is not None):
+        raise ValueError("시멘틱 설정과 stream별 의미 경계 목록은 함께 전달해야 합니다")
 
     documents_by_id: dict[str, Mapping[str, Any]] = {}
     for document in documents:
@@ -2108,6 +2173,13 @@ def build_advanced_chunk_corpus(
         streams = build_advanced_streams(document, blocks_by_document[source_id])
         for stream in streams:
             if isinstance(stream, AdvancedTextStream):
+                semantic_cut_after: Container[int] | None = None
+                if semantic_cut_after_by_stream is not None:
+                    if stream.stream_id not in semantic_cut_after_by_stream:
+                        raise ValueError(
+                            f"시멘틱 경계 목록에 stream이 없습니다: {stream.stream_id}"
+                        )
+                    semantic_cut_after = semantic_cut_after_by_stream[stream.stream_id]
                 document_chunks.extend(
                     chunk_advanced_text_stream(
                         document,
@@ -2116,6 +2188,7 @@ def build_advanced_chunk_corpus(
                         selected_config,
                         selected_splitter,
                         selected_kiwi,
+                        semantic_cut_after,
                     )
                 )
             else:
@@ -2145,6 +2218,7 @@ def chunk_advanced_corpus(
     config: AdvancedChunkConfig | None = None,
     sentence_splitter: SentenceSplitter | Callable[[str], Sequence[str]] | None = None,
     kiwi_tokenizer: Bm25Tokenizer | Callable[[str], Sequence[Any]] | None = None,
+    semantic_cut_after_by_stream: Mapping[str, Container[int]] | None = None,
 ) -> AdvancedChunkingResult:
     """여러 Advanced 입력을 청킹하고 검증·요약까지 한 번에 수행한다."""
     selected_config = config or AdvancedChunkConfig()
@@ -2159,6 +2233,7 @@ def chunk_advanced_corpus(
         selected_config,
         sentence_splitter,
         kiwi_tokenizer,
+        semantic_cut_after_by_stream,
     )
     validation = validate_advanced_chunks(
         documents,
@@ -2348,6 +2423,10 @@ def validate_advanced_chunks(
             if chunk.get("content_type") == "text"
             else "embedding_text"
         )
+        and chunk.get("semantic_min_tokens") == config.semantic_min_tokens
+        and chunk.get("semantic_distance_threshold")
+        == config.semantic_distance_threshold
+        and chunk.get("semantic_threshold_label") == config.semantic_threshold_label
         for chunk in chunks
     )
     prefix_absent = all(
@@ -2362,6 +2441,7 @@ def validate_advanced_chunks(
     kss_metadata_valid = True
     tail_metadata_valid = True
     metadata_valid = True
+    semantic_metadata_valid = True
     for chunk in chunks:
         document = documents_by_id[str(chunk["source_id"])]
         source_blocks = [
@@ -2424,6 +2504,7 @@ def validate_advanced_chunks(
             table_contract_valid &= bool(
                 parse_markdown_table_segments(chunk["embedding_text"])
             )
+            semantic_metadata_valid &= chunk.get("semantic_boundary_cut") is False
         else:
             bm25_contract_valid &= chunk.get("kss_applied") is True
             bm25_contract_valid &= chunk.get("bm25_eligible") is True
@@ -2444,6 +2525,13 @@ def validate_advanced_chunks(
             alignment_fallback = chunk.get("kss_alignment_fallback")
             alignment_status = chunk.get("kss_alignment_status")
             quality_flags = set(chunk.get("quality_flags") or [])
+            semantic_boundary_cut = chunk.get("semantic_boundary_cut")
+            semantic_metadata_valid &= isinstance(semantic_boundary_cut, bool)
+            semantic_metadata_valid &= (
+                "semantic_distance_boundary" in quality_flags
+            ) is semantic_boundary_cut
+            if config.semantic_distance_threshold is None:
+                semantic_metadata_valid &= semantic_boundary_cut is False
             kss_metadata_valid &= isinstance(sanitized, bool)
             kss_metadata_valid &= (
                 isinstance(sanitized_count, int) and sanitized_count >= 0
@@ -2676,6 +2764,7 @@ def validate_advanced_chunks(
         "text_bm25_tokens_follow_policy": bool(bm25_contract_valid),
         "kss_sanitization_metadata_is_consistent": bool(kss_metadata_valid),
         "tail_adjustment_metadata_is_consistent": bool(tail_metadata_valid),
+        "semantic_boundary_metadata_is_consistent": bool(semantic_metadata_valid),
         "short_final_text_chunks_are_adjusted": bool(short_tail_contract_valid),
         "every_nonfirst_text_chunk_adds_new_content": bool(
             all_nonfirst_chunks_add_content
@@ -2802,6 +2891,14 @@ def build_advanced_summary(
         "table_max_tokens": config.table_max_tokens,
         "overlap_target_tokens": config.overlap_tokens,
         "min_tail_tokens": config.min_tail_tokens,
+        "semantic_min_tokens": config.semantic_min_tokens,
+        "semantic_distance_threshold": config.semantic_distance_threshold,
+        "semantic_threshold_label": config.semantic_threshold_label,
+        "semantic_boundary_cut_count": sum(
+            chunk.get("content_type") == "text"
+            and chunk.get("semantic_boundary_cut") is True
+            for chunk in chunks
+        ),
         "overlap_policy": (
             "largest_whole_sentence_suffix_then_safe_token_slice_at_or_below_target"
         ),
@@ -2956,6 +3053,7 @@ __all__ = [
     "normalize_text_for_embedding",
     "pack_sentence_spans",
     "resolve_stream_sentences",
+    "semantic_strategy_id_for",
     "StreamSentences",
     "validate_advanced_chunks",
 ]

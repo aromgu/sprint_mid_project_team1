@@ -1605,3 +1605,68 @@ def test_semantic_cut_still_honors_token_ceiling() -> None:
 
     assert [len(CODEC.encode(part["text"])) for part in packed] == [600, 600]
     assert all(len(CODEC.encode(part["text"])) <= config.max_tokens for part in packed)
+
+
+def test_semantic_boundaries_flow_through_full_corpus_and_metadata() -> None:
+    """stream별 거리 경계가 최종 청크와 품질 metadata까지 전달된다."""
+    parts = ["가" * 300, "나" * 300, "다" * 300, "라" * 300]
+    document = make_document()
+    block = make_text_block(1, "".join(parts))
+    config = AdvancedChunkConfig(
+        max_tokens=1024,
+        overlap_tokens=0,
+        min_tail_tokens=0,
+        semantic_min_tokens=256,
+        semantic_distance_threshold=0.706,
+        semantic_threshold_label="p83",
+        model_name=CODEC.model_name,
+        encoding_name=CODEC.encoding_name,
+        strategy_id="advanced_semantic_p83_1024_0_test",
+    )
+
+    result = chunk_advanced_corpus(
+        [document],
+        [block],
+        codec=CODEC,
+        config=config,
+        sentence_splitter=KssSpy(responses=[parts]),
+        kiwi_tokenizer=KiwiSpy(),
+        semantic_cut_after_by_stream={"source-001:AS000001": frozenset({2})},
+    )
+    text_chunks = [chunk for chunk in result.chunks if chunk["content_type"] == "text"]
+
+    assert [chunk["sentence_end"] for chunk in text_chunks] == [2, 4]
+    assert [chunk["semantic_boundary_cut"] for chunk in text_chunks] == [True, False]
+    assert "semantic_distance_boundary" in text_chunks[0]["quality_flags"]
+    assert "semantic_distance_boundary" not in text_chunks[1]["quality_flags"]
+    assert all(chunk["semantic_distance_threshold"] == 0.706 for chunk in text_chunks)
+    assert result.summary["semantic_boundary_cut_count"] == 1
+    assert result.summary["validation"]["overall_pass"] is True
+
+
+def test_semantic_corpus_rejects_missing_stream_boundary_entry() -> None:
+    """시멘틱 모드에서 stream 하나라도 거리 목록이 없으면 조용히 진행하지 않는다."""
+    document = make_document()
+    block = make_text_block(1, "사업 개요입니다.")
+    config = AdvancedChunkConfig(
+        max_tokens=1024,
+        overlap_tokens=0,
+        min_tail_tokens=0,
+        semantic_min_tokens=256,
+        semantic_distance_threshold=0.706,
+        semantic_threshold_label="p83",
+        model_name=CODEC.model_name,
+        encoding_name=CODEC.encoding_name,
+        strategy_id="advanced_semantic_p83_1024_0_test",
+    )
+
+    with pytest.raises(ValueError, match="stream이 없습니다"):
+        chunk_advanced_corpus(
+            [document],
+            [block],
+            codec=CODEC,
+            config=config,
+            sentence_splitter=KssSpy(),
+            kiwi_tokenizer=KiwiSpy(),
+            semantic_cut_after_by_stream={},
+        )
