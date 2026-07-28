@@ -1563,20 +1563,30 @@ def _call_sentence_splitter(
     return sentences
 
 
-def chunk_advanced_text_stream(
+@dataclass(frozen=True, slots=True)
+class StreamSentences:
+    """한 stream의 KSS 문장 경계와 그 과정에서 남은 상태다."""
+
+    spans: tuple[SentenceSpan, ...]
+    alignment_fallback: bool
+    sanitized_character_count: int
+
+
+def resolve_stream_sentences(
     document: Mapping[str, Any],
     stream: AdvancedTextStream,
-    codec: TokenCodec,
-    config: AdvancedChunkConfig,
     sentence_splitter: SentenceSplitter | Callable[[str], Sequence[str]],
-    kiwi_tokenizer: Bm25Tokenizer | Callable[[str], Sequence[Any]],
-) -> list[dict[str, Any]]:
-    """한 위치 stream에 KSS→문장 packing→Kiwi를 순서대로 적용한다."""
+) -> StreamSentences:
+    """stream 하나의 KSS 문장 경계를 만든다.
+
+    고정 크기 청킹(512·1024)과 시멘틱 청킹이 **같은 문장 경계**를 써야 조건 비교가
+    청크 크기 차이만 반영한다. 경계 계산을 두 곳에 두면 한쪽만 바뀌었을 때 조용히
+    갈라지므로 이 함수 하나만 쓴다.
+    """
     kss_input, sanitized_character_count = _sanitize_kss_input(stream.text)
     kss_sentences = _call_sentence_splitter(sentence_splitter, kss_input)
-    alignment_fallback = False
     try:
-        sentences = align_kss_sentences(
+        spans = align_kss_sentences(
             stream.text,
             kss_sentences,
             boundary_id=stream.boundary_id,
@@ -1588,18 +1598,41 @@ def chunk_advanced_text_stream(
     except KssAlignmentError:
         # pecab이 표시 문자 외의 원문까지 바꾼 예외 문단은 잘못된 KSS 경계를
         # 억지로 적용하지 않는다. 한 문장 span으로 원문을 100% 보존하고,
-        # 512를 넘을 때만 기존 UTF-8 안전 토큰 fallback이 나눈다.
-        alignment_fallback = True
-        sentences = [
-            SentenceSpan(
-                boundary_id=stream.boundary_id,
-                sentence_index=1,
-                char_start=0,
-                char_end=len(stream.text),
-                normalized_text=stream.text,
-                raw_text=stream.text,
-            )
-        ]
+        # 상한을 넘을 때만 기존 UTF-8 안전 토큰 fallback이 나눈다.
+        return StreamSentences(
+            spans=(
+                SentenceSpan(
+                    boundary_id=stream.boundary_id,
+                    sentence_index=1,
+                    char_start=0,
+                    char_end=len(stream.text),
+                    normalized_text=stream.text,
+                    raw_text=stream.text,
+                ),
+            ),
+            alignment_fallback=True,
+            sanitized_character_count=sanitized_character_count,
+        )
+    return StreamSentences(
+        spans=tuple(spans),
+        alignment_fallback=False,
+        sanitized_character_count=sanitized_character_count,
+    )
+
+
+def chunk_advanced_text_stream(
+    document: Mapping[str, Any],
+    stream: AdvancedTextStream,
+    codec: TokenCodec,
+    config: AdvancedChunkConfig,
+    sentence_splitter: SentenceSplitter | Callable[[str], Sequence[str]],
+    kiwi_tokenizer: Bm25Tokenizer | Callable[[str], Sequence[Any]],
+) -> list[dict[str, Any]]:
+    """한 위치 stream에 KSS→문장 packing→Kiwi를 순서대로 적용한다."""
+    resolved = resolve_stream_sentences(document, stream, sentence_splitter)
+    sentences = list(resolved.spans)
+    alignment_fallback = resolved.alignment_fallback
+    sanitized_character_count = resolved.sanitized_character_count
     packed = pack_sentence_spans(stream.text, sentences, codec, config)
     alignment_flags: list[str] = []
     if sanitized_character_count:
@@ -2870,5 +2903,7 @@ __all__ = [
     "extract_page_marker_numbers",
     "normalize_text_for_embedding",
     "pack_sentence_spans",
+    "resolve_stream_sentences",
+    "StreamSentences",
     "validate_advanced_chunks",
 ]
