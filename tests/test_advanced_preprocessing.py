@@ -110,9 +110,15 @@ def test_hwp_table_uses_image_reference_without_binary_payload() -> None:
     )
 
     for value in (formats["table_html"], formats["table_markdown"]):
-        assert f"image://{picture_id}" in value
         assert "data:" not in value
         assert "base64" not in value.casefold()
+
+    # 팀 회의 결정(2026-07-28): 이미지 참조는 임베딩 본문에서 빼고 table_html과
+    # image_refs에만 남긴다. 셀 위치는 HTML의 <img>가 보존한다.
+    assert f"image://{picture_id}" in formats["table_html"]
+    assert "image://" not in formats["table_markdown"]
+    assert formats["image_refs"] == [picture_id]
+    assert formats["nested_table_refs"] == []
 
 
 def test_hwp_table_escapes_untrusted_text_in_html() -> None:

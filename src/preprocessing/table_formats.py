@@ -15,6 +15,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 from src.preprocessing.clean_text import (
+    REFERENCE_MODE_METADATA,
     block_display_text,
     caption_text,
     child_blocks,
@@ -25,6 +26,7 @@ from src.preprocessing.clean_text import (
     picture_alt,
     render_pdf_table,
     render_table_gfm,
+    table_reference_ids,
 )
 
 __all__ = [
@@ -220,8 +222,14 @@ def build_hwp_table_formats(
     block: Any,
     table_ids: dict[int, str],
     picture_ids: dict[int, str],
-) -> dict[str, str]:
-    """HWP 표의 저장용 HTML과 벡터화용 Markdown을 함께 반환한다."""
+) -> dict[str, Any]:
+    """HWP 표의 저장용 HTML과 벡터화용 Markdown을 함께 반환한다.
+
+    Advanced 경로 전용이므로 중첩 표·이미지 참조는 임베딩 본문에 넣지 않고
+    ``nested_table_refs``·``image_refs``로만 돌려준다(팀 회의 결정 2026-07-28).
+    참조의 셀 위치는 ``table_html``이 그대로 보존한다.
+    """
+    nested_refs, image_refs = table_reference_ids(block, table_ids, picture_ids)
     return {
         "table_html": render_hwp_table_html(
             block,
@@ -232,8 +240,11 @@ def build_hwp_table_formats(
             block,
             table_ids,
             picture_ids,
+            reference_mode=REFERENCE_MODE_METADATA,
         ),
         "vectorize_field": "table_markdown",
+        "nested_table_refs": nested_refs,
+        "image_refs": image_refs,
     }
 
 
@@ -373,7 +384,7 @@ def build_pdf_table_formats(
     table_id: str,
     *,
     cell_bboxes: Sequence[Sequence[float]] | None = None,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """PDF 표의 저장용 HTML과 벡터화용 Markdown을 함께 반환한다.
 
     pdfplumber 셀 좌표(``cell_bboxes``)가 주어지고 추출 행렬과 일관되면 병합을
@@ -387,9 +398,14 @@ def build_pdf_table_formats(
             "table_html": render_pdf_table_html_spans(grid, table_id),
             "table_markdown": render_pdf_table(grid["filled_matrix"]),
             "vectorize_field": "table_markdown",
+            # pdfplumber 행렬에는 중첩 표·이미지가 없다. HWP와 계약을 맞춘다.
+            "nested_table_refs": [],
+            "image_refs": [],
         }
     return {
         "table_html": render_pdf_table_html(matrix, table_id),
         "table_markdown": render_pdf_table(matrix),
+        "nested_table_refs": [],
+        "image_refs": [],
         "vectorize_field": "table_markdown",
     }

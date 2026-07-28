@@ -516,27 +516,67 @@ def render_picture_placeholder(block: Any, picture_id: str) -> str:
     return f"![{escaped_alt}]({uri})"
 
 
+REFERENCE_MODE_INLINE = "inline"
+REFERENCE_MODE_METADATA = "metadata"
+
+
+def table_reference_ids(
+    block: Any,
+    table_ids: Mapping[int, str],
+    picture_ids: Mapping[int, str],
+) -> tuple[list[str], list[str]]:
+    """표 안에 있던 중첩 표·이미지 참조 ID를 문서 순서대로 모은다.
+
+    ``reference_mode="metadata"``로 렌더링하면 본문에서 참조 표기가 사라지므로,
+    어떤 표·이미지가 이 표 안에 있었는지는 이 목록으로만 알 수 있다. 위치는
+    ``table_html``이 보존한다.
+    """
+    nested: list[str] = []
+    pictures: list[str] = []
+    for child, _ in walk_blocks_with_depth(child_blocks(block)):
+        kind = kind_name(child)
+        if kind == "table":
+            table_id = table_ids.get(id(child))
+            if table_id and table_id not in nested:
+                nested.append(table_id)
+        elif kind == "picture":
+            picture_id = picture_ids.get(id(child))
+            if picture_id and picture_id not in pictures:
+                pictures.append(picture_id)
+    return nested, pictures
+
+
 def render_markdown_cell_block(
     block: Any,
     table_ids: dict[int, str],
     picture_ids: dict[int, str],
     *,
     include_media: bool = True,
+    reference_mode: str = REFERENCE_MODE_INLINE,
 ) -> str:
     """셀 자식을 HTML 없이 Markdown 한 조각으로 바꾼다.
 
-    중첩 표는 셀 안에 다시 그리지 않고 ID만 남긴다. 실제 표는 부모 표 아래에
-    별도 Markdown 표로 펼쳐 이미지와 표 내용이 중복되는 일을 막는다.
+    중첩 표는 셀 안에 다시 그리지 않는다. 실제 표는 부모 표 아래에 별도
+    Markdown 표로 펼쳐 이미지와 표 내용이 중복되는 일을 막는다.
+
+    ``reference_mode``는 중첩 표·이미지 참조를 어디에 둘지 정한다.
+    ``inline``은 셀에 ``[중첩 표: ID]``·``![...](image://ID)`` 표기를 남기고,
+    ``metadata``는 본문에서 완전히 빼고 청크 metadata에만 남긴다. 팀 회의
+    결정(2026-07-28)에 따라 Advanced 경로는 ``metadata``를 쓴다. 참조 ID가
+    임베딩 본문에 있으면 검색어가 아닌 식별자가 임베딩되고, Kiwi가 ID를
+    토큰으로 쪼개 어휘 색인까지 오염시킨다. 셀 위치는 ``table_html``의
+    ``<table>``·``<img src="image://...">``가 그대로 보존한다.
 
     ``include_media=False``는 병합 셀을 아래·오른쪽 칸에 반복해 채울 때 쓴다.
     이미지와 중첩 표 참조는 부모 블록 안에 한 번만 있어야 하므로 반복 대상에서
     제외하고 텍스트만 남긴다.
     """
     kind = kind_name(block)
+    keep_reference = include_media and reference_mode == REFERENCE_MODE_INLINE
     if kind == "table":
-        return f"[중첩 표: {table_ids[id(block)]}]" if include_media else ""
+        return f"[중첩 표: {table_ids[id(block)]}]" if keep_reference else ""
     if kind == "picture":
-        if not include_media:
+        if not keep_reference:
             return ""
         return render_picture_placeholder(block, picture_ids[id(block)])
     if kind == "list_item":
@@ -557,6 +597,7 @@ def render_markdown_cell_block(
                 table_ids,
                 picture_ids,
                 include_media=include_media,
+                reference_mode=reference_mode,
             )
             if rendered:
                 parts.append(rendered)
@@ -586,8 +627,13 @@ def render_table_gfm(
     block: Any,
     table_ids: dict[int, str],
     picture_ids: dict[int, str],
+    *,
+    reference_mode: str = REFERENCE_MODE_INLINE,
 ) -> str:
-    """단순·병합·중첩 표를 모두 GFM Markdown으로 만든다."""
+    """단순·병합·중첩 표를 모두 GFM Markdown으로 만든다.
+
+    ``reference_mode``는 ``render_markdown_cell_block``과 같은 의미다.
+    """
     cells = list(getattr(block, "cells", []) or [])
     declared_rows = max(int(getattr(block, "rows", 0) or 0), 0)
     declared_cols = max(int(getattr(block, "cols", 0) or 0), 0)
@@ -633,7 +679,12 @@ def render_table_gfm(
         col_span = max(int(getattr(cell, "col_span", 1) or 1), 1)
         cell_blocks = list(getattr(cell, "blocks", []) or [])
         values = [
-            render_markdown_cell_block(child, table_ids, picture_ids)
+            render_markdown_cell_block(
+                child,
+                table_ids,
+                picture_ids,
+                reference_mode=reference_mode,
+            )
             for child in cell_blocks
         ]
         content = "\n".join(value for value in values if value)
@@ -654,6 +705,7 @@ def render_table_gfm(
                     table_ids,
                     picture_ids,
                     include_media=False,
+                    reference_mode=reference_mode,
                 )
                 for child in cell_blocks
             ]
@@ -686,8 +738,21 @@ def render_table_gfm(
 
     for nested in direct_nested_tables(block):
         nested_id = table_ids[id(nested)]
-        nested_markdown = render_table_gfm(nested, table_ids, picture_ids)
-        sections.append(f"**중첩 표 `{nested_id}`**\n\n{nested_markdown}")
+        nested_markdown = render_table_gfm(
+            nested,
+            table_ids,
+            picture_ids,
+            reference_mode=reference_mode,
+        )
+        # 제목의 표 ID도 검색어가 아니다. Kiwi가 ID를 조각 토큰으로 쪼개
+        # 어휘 색인을 오염시키므로 metadata 모드에서는 ID를 넣지 않는다. 어떤
+        # 표였는지는 부모 청크의 nested_table_ref_ids와 table_segment_index로
+        # 되짚을 수 있고, 셀 위치는 table_html이 보존한다.
+        if reference_mode == REFERENCE_MODE_INLINE:
+            heading = f"**중첩 표 `{nested_id}`**"
+        else:
+            heading = "**중첩 표**"
+        sections.append(f"{heading}\n\n{nested_markdown}")
     return "\n\n".join(sections)
 
 

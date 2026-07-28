@@ -1089,13 +1089,18 @@ def test_short_final_chunk_uses_safe_overlap_when_sentence_cannot_move() -> None
 
     packed = pack_sentence_spans(spans, codec=CODEC, config=CONFIG)
 
-    assert [len(CODEC.encode(part["text"])) for part in packed] == [500, 51]
-    assert packed[-1]["text"] == first[-31:] + tail
-    assert packed[-1]["overlap_actual_tokens"] == 31
+    # 온전한 문장 overlap이 불가능해 토큰 경계로 51을 붙인다(20 + 51).
+    assert [len(CODEC.encode(part["text"])) for part in packed] == [500, 71]
+    assert packed[-1]["text"] == first[-51:] + tail
+    assert packed[-1]["overlap_actual_tokens"] == 51
+    assert packed[-1]["token_slice_overlap"] is True
+    assert packed[-1]["overlap_sentence_count"] == 0
+    # 경계에서 이미 51토큰 overlap을 붙였으므로 짧은 tail 보수는 별도의 안전
+    # overlap을 다시 만들 필요가 없다. 있는 overlap을 문맥으로 인정하고 끝낸다.
     assert packed[-1]["short_tail_adjusted"] is True
-    assert packed[-1]["short_tail_token_overlap_fallback"] is True
-    assert packed[-1]["short_tail_adjustment_mode"] == "safe_token_overlap_fallback"
-    assert packed[-1]["short_tail_context_added_tokens"] == 31
+    assert packed[-1]["short_tail_token_overlap_fallback"] is False
+    assert packed[-1]["short_tail_adjustment_mode"] == "existing_overlap_context"
+    assert packed[-1]["short_tail_context_added_tokens"] == 51
 
 
 def test_final_chunk_at_tail_minimum_and_single_short_stream_are_unchanged() -> None:
@@ -1116,7 +1121,8 @@ def test_final_chunk_at_tail_minimum_and_single_short_stream_are_unchanged() -> 
     exact = pack_sentence_spans(exact_spans, codec=CODEC, config=CONFIG)
     single = pack_sentence_spans(single_spans, codec=CODEC, config=CONFIG)
 
-    assert [len(CODEC.encode(part["text"])) for part in exact] == [500, 51]
+    # tail이 min_tail을 만족해도 경계에는 overlap이 필요하다(51 + 51).
+    assert [len(CODEC.encode(part["text"])) for part in exact] == [500, 102]
     assert all(part["short_tail_adjusted"] is False for part in exact)
     assert len(single) == 1
     assert single[0]["text"] == "다" * 20

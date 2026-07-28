@@ -175,11 +175,20 @@ METADATA_FIELDS = (
     "table_segment_index",
     "table_segment_count",
     "render_mode",
+    # 팀장님이 DB에서 overlap을 확인할 수 없다고 지적해 metadata에 노출한다.
+    # 청크 파일에는 있었지만 Chroma로 넘기지 않아 감사 자체가 불가능했다.
+    "overlap_actual_tokens",
+    "sentence_count",
     "kss_applied",
     "bm25_eligible",
     # 팀 회의 결정(2026-07-27): 표 원본 구조를 답변 근거로 보여주기 위해
     # table_html을 metadata에 포함한다. 큰 값이지만 표 청크에만 존재한다.
     "table_html",
+    # 팀 회의 결정(2026-07-28): 표 안에 있던 이미지·중첩 표를 답변 근거로
+    # 되짚을 수 있게 참조 ID를 metadata에 싣는다. Chroma는 리스트를 받지 않아
+    # 공백으로 이어 붙인 문자열을 쓴다.
+    "image_ref_ids",
+    "nested_table_ref_ids",
 )
 
 

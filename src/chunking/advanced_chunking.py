@@ -208,6 +208,8 @@ class PackedTextChunk:
     overlap_actual_tokens: int
     overlap_sentence_count: int
     oversized_sentence_split: bool
+    # 온전한 문장 overlap이 불가능해 토큰 경계로 잘라 붙였는지 표시한다.
+    token_slice_overlap: bool = False
     sentence_fragment_index: int | None = None
     sentence_fragment_count: int | None = None
     sentence_token_start: int | None = None
@@ -789,6 +791,63 @@ def _split_oversized_sentence(
     return chunks
 
 
+def _sentence_index_at(
+    sentences: Sequence[SentenceSpan],
+    fallback_index: int,
+    char_offset: int,
+) -> int:
+    """char offset이 속한 문장의 sentence_index를 찾는다.
+
+    토큰 단위 overlap은 청크를 문장 중간에서 시작시키므로, 청크가 실제로 걸치는
+    첫 문장을 metadata에 남겨야 sentence_count가 사실과 맞는다.
+    """
+    for span in sentences:
+        if span.char_start <= char_offset < span.char_end:
+            return span.sentence_index
+    return sentences[fallback_index].sentence_index
+
+
+def _token_slice_overlap_start(
+    budget_text: str,
+    chunk_char_start: int,
+    chunk_char_end: int,
+    codec: TokenCodec,
+    config: AdvancedChunkConfig,
+) -> tuple[int, int] | None:
+    """온전한 문장 overlap이 안 될 때 토큰 경계로 자른 overlap 시작점을 찾는다.
+
+    RFP는 개조식(``□``·``◦``·``-``)이라 KSS가 나눈 한 문장이 중앙값 96토큰,
+    평균 131토큰이다. overlap 예산 51토큰(512의 10%)으로는 문장 하나도 담을 수
+    없어, 실측 기준 경계의 94.5%에서 온전한 문장 overlap이 실패했다. 그 결과
+    연속 청크 4,347쌍 중 3,100쌍(71.3%)에 overlap이 없었다.
+
+    그런 경계에서는 문장 온전성을 포기하고 UTF-8 안전한 토큰 경계에서 잘라
+    팀 기준인 10% overlap을 지킨다. 문장 경계를 맞출 수 있으면 그쪽을 먼저
+    쓰므로(``_whole_sentence_overlap_start``) 이 함수는 차선책이다.
+
+    반환값은 ``(overlap 시작 char offset, overlap 토큰 수)``이며, 예산에 맞는
+    안전한 경계가 없거나 앞으로 진행하지 못하면 ``None``이다.
+    """
+    if config.overlap_tokens <= 0 or chunk_char_end <= chunk_char_start:
+        return None
+    chunk_budget = budget_text[chunk_char_start:chunk_char_end]
+    token_map = TokenTextMap(chunk_budget, codec)
+    total = len(token_map)
+    # 청크 전체가 예산보다 작으면 다음 청크가 앞 청크를 통째로 품어 새 내용이
+    # 없는 중복 청크가 된다. 그런 경계는 overlap 없이 넘어간다.
+    if total <= config.overlap_tokens:
+        return None
+    # 오름차순에서 예산을 처음 만족하는 인덱스가 예산 안 최대 overlap이다.
+    for index in token_map.safe_token_indices:
+        if index <= 0 or index >= total:
+            continue
+        if total - index <= config.overlap_tokens:
+            local_char = token_map.token_to_char[index]
+            if 0 < local_char < len(chunk_budget):
+                return chunk_char_start + local_char, total - index
+    return None
+
+
 def _whole_sentence_overlap_start(
     budget_text: str,
     spans: Sequence[SentenceSpan],
@@ -1017,6 +1076,9 @@ def pack_sentence_spans(
     start_index = 0
     pending_overlap_tokens = 0
     pending_overlap_sentences = 0
+    # 온전한 문장 overlap이 불가능한 경계에서 앞 청크 꼬리를 토큰 단위로 잘라
+    # 붙일 시작 offset이다. None이면 문장 경계에서 그대로 시작한다.
+    pending_overlap_char_start: int | None = None
 
     while start_index < len(selected_sentences):
         first = selected_sentences[start_index]
@@ -1032,37 +1094,48 @@ def pack_sentence_spans(
             start_index += 1
             pending_overlap_tokens = 0
             pending_overlap_sentences = 0
+            pending_overlap_char_start = None
             continue
 
+        chunk_char_start = (
+            first.char_start
+            if pending_overlap_char_start is None
+            else pending_overlap_char_start
+        )
         end_index = start_index
         while end_index < len(selected_sentences):
             candidate = selected_budget_text[
-                selected_sentences[start_index].char_start : selected_sentences[
-                    end_index
-                ].char_end
+                chunk_char_start : selected_sentences[end_index].char_end
             ]
             if len(codec.encode(candidate)) > selected_config.max_tokens:
                 break
             end_index += 1
         if end_index == start_index:
+            if pending_overlap_char_start is not None:
+                # overlap 꼬리까지 붙이면 문장 하나도 상한에 못 들어간다.
+                # overlap을 포기하고 문장 경계에서 다시 시작한다.
+                pending_overlap_char_start = None
+                pending_overlap_tokens = 0
+                pending_overlap_sentences = 0
+                continue
             raise ValueError("문장 하나를 토큰 상한 안에 넣지 못했습니다")
 
-        raw_text = selected_text[
-            selected_sentences[start_index].char_start : selected_sentences[
-                end_index - 1
-            ].char_end
-        ]
+        chunk_char_end = selected_sentences[end_index - 1].char_end
+        raw_text = selected_text[chunk_char_start:chunk_char_end]
         packed.append(
             PackedTextChunk(
                 text=raw_text,
-                char_start=selected_sentences[start_index].char_start,
-                char_end=selected_sentences[end_index - 1].char_end,
-                sentence_start=selected_sentences[start_index].sentence_index,
+                char_start=chunk_char_start,
+                char_end=chunk_char_end,
+                sentence_start=_sentence_index_at(
+                    selected_sentences, start_index, chunk_char_start
+                ),
                 sentence_end=selected_sentences[end_index - 1].sentence_index,
                 overlap_target_tokens=selected_config.overlap_tokens,
                 overlap_actual_tokens=pending_overlap_tokens,
                 overlap_sentence_count=pending_overlap_sentences,
                 oversized_sentence_split=False,
+                token_slice_overlap=pending_overlap_char_start is not None,
             )
         )
         if end_index >= len(selected_sentences):
@@ -1082,11 +1155,12 @@ def pack_sentence_spans(
             start_index = end_index
             pending_overlap_tokens = 0
             pending_overlap_sentences = 0
+            pending_overlap_char_start = None
             continue
         (
             next_start,
-            pending_overlap_tokens,
-            pending_overlap_sentences,
+            whole_sentence_tokens,
+            whole_sentence_count,
         ) = _whole_sentence_overlap_start(
             selected_budget_text,
             selected_sentences,
@@ -1096,7 +1170,30 @@ def pack_sentence_spans(
             codec,
             selected_config,
         )
-        start_index = next_start
+        if whole_sentence_tokens > 0:
+            # 문장 경계로 예산을 채울 수 있으면 그쪽을 쓴다.
+            pending_overlap_char_start = None
+            pending_overlap_tokens = whole_sentence_tokens
+            pending_overlap_sentences = whole_sentence_count
+            start_index = next_start
+            continue
+        # 개조식 문장이 예산보다 길어 온전한 문장으로는 overlap을 못 만든다.
+        # 토큰 경계로 잘라 팀 기준 10% overlap을 지킨다.
+        token_overlap = _token_slice_overlap_start(
+            selected_budget_text,
+            chunk_char_start,
+            chunk_char_end,
+            codec,
+            selected_config,
+        )
+        if token_overlap is None:
+            pending_overlap_char_start = None
+            pending_overlap_tokens = 0
+            pending_overlap_sentences = 0
+        else:
+            pending_overlap_char_start, pending_overlap_tokens = token_overlap
+            pending_overlap_sentences = 0
+        start_index = end_index
     return _repair_short_final_chunk(
         packed,
         selected_text,
@@ -1505,6 +1602,8 @@ def chunk_advanced_text_stream(
             extra_flags.append("short_final_text_chunk_adjusted")
         if part.short_tail_token_overlap_fallback:
             extra_flags.append("short_tail_token_overlap_fallback")
+        if part.token_slice_overlap:
+            extra_flags.append("token_slice_overlap_fallback")
         if part.short_tail_adjustment_mode == "merged_with_previous":
             extra_flags.append("short_tail_merged_with_previous")
         new_char_start = max(covered_char_end, part.char_start)
@@ -1539,6 +1638,7 @@ def chunk_advanced_text_stream(
                     "sentence_end": part.sentence_end,
                     "sentence_count": part.sentence_end - part.sentence_start + 1,
                     "oversized_sentence_split": part.oversized_sentence_split,
+                    "token_slice_overlap": part.token_slice_overlap,
                     "sentence_fragment_index": part.sentence_fragment_index,
                     "sentence_fragment_count": part.sentence_fragment_count,
                     "sentence_token_start": part.sentence_token_start,
@@ -1796,6 +1896,17 @@ def chunk_advanced_table_block(
                     # 있게 rowspan/colspan이 살아 있는 HTML을 청크에 함께 싣는다.
                     # 표가 나뉘어도 각 part가 같은 원본 표 HTML을 가리킨다.
                     "table_html": str(block.get("table_html") or ""),
+                    # 팀 회의 결정(2026-07-28): 중첩 표·이미지 참조는 임베딩
+                    # 본문에 넣지 않고 여기에만 남긴다. Chroma metadata는 스칼라만
+                    # 받으므로 공백으로 이어 붙인 문자열도 함께 싣는다.
+                    "nested_table_refs": list(block.get("nested_table_refs") or []),
+                    "image_refs": list(block.get("image_refs") or []),
+                    "nested_table_ref_ids": " ".join(
+                        str(value) for value in (block.get("nested_table_refs") or [])
+                    ),
+                    "image_ref_ids": " ".join(
+                        str(value) for value in (block.get("image_refs") or [])
+                    ),
                     "render_mode": "gfm",
                     "table_part_index": table_part_index,
                     "table_part_count": len(segment_parts),
@@ -2566,7 +2677,9 @@ def build_advanced_summary(
         "table_max_tokens": config.table_max_tokens,
         "overlap_target_tokens": config.overlap_tokens,
         "min_tail_tokens": config.min_tail_tokens,
-        "overlap_policy": "largest_whole_sentence_suffix_at_or_below_target",
+        "overlap_policy": (
+            "largest_whole_sentence_suffix_then_safe_token_slice_at_or_below_target"
+        ),
         "short_tail_policy": ("merge_then_rebalance_then_safe_overlap_by_new_content"),
         "page_marker_policy": "always_metadata_only_never_in_embedding_text",
         "page_marker_detector_id": PAGE_MARKER_DETECTOR_ID,
@@ -2675,6 +2788,9 @@ def build_advanced_summary(
             round(statistics.fmean(overlaps), 2) if overlaps else 0.0
         ),
         "overlap_actual_max": max(overlaps, default=0),
+        "token_slice_overlap_count": sum(
+            bool(chunk.get("token_slice_overlap")) for chunk in chunks
+        ),
         "validation": dict(validation),
     }
 
