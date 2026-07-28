@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import asdict
 from pathlib import Path
 
@@ -61,10 +62,36 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def grant_group_access(*paths: Path) -> None:
+    """산출물을 teamshare 그룹이 읽고 쓸 수 있게 맞춘다.
+
+    umask만으로는 부족하다. sqlite가 DB 파일을 0644로 만들기 때문에 umask는 비트를
+    뺄 수만 있고 그룹 쓰기를 더하지 못한다. 그 결과 chroma.sqlite3이 그룹 읽기
+    전용으로 남아, 다른 팀원이 컬렉션을 열 때 Chroma가 조회에도 쓰기 모드로 열기
+    때문에 "attempt to write a readonly database"로 실패한다.
+    """
+    for path in paths:
+        if not path.exists():
+            continue
+        targets = [path, *path.rglob("*")] if path.is_dir() else [path]
+        for target in targets:
+            try:
+                # 디렉터리는 그룹 진입·탐색과 setgid까지, 파일은 읽기·쓰기만 준다.
+                extra = 0o2070 if target.is_dir() else 0o060
+                target.chmod(target.stat().st_mode | extra)
+            except PermissionError:
+                # 다른 사람이 만든 파일은 건드리지 않는다.
+                continue
+
+
 def main() -> None:
     """입력 검증 또는 Advanced 인덱싱 실행 결과를 JSON으로 출력한다."""
 
     args = build_parser().parse_args()
+    # 산출물을 teamshare 그룹이 쓸 수 있게 만든다. 청킹 스크립트와 같은 값이다.
+    # 다만 umask는 비트를 뺄 수만 있어 sqlite가 0644로 만드는 chroma.sqlite3에는
+    # 그룹 쓰기를 더하지 못한다. 그건 grant_group_access가 마무리한다.
+    os.umask(0o007)
     if args.validate_only:
         audit = audit_advanced_input(args.input, max_records=args.max_records)
         payload = asdict(audit)
@@ -82,6 +109,11 @@ def main() -> None:
         batch_size=args.batch_size,
         max_records=args.max_records,
         mode=args.mode,
+    )
+    grant_group_access(
+        args.persist_directory,
+        args.bm25_directory,
+        args.report,
     )
     print(json.dumps(asdict(report), ensure_ascii=False, indent=2))
 

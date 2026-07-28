@@ -816,7 +816,10 @@ def parse_markdown_table_segments(value: str) -> list[MarkdownTableSegment]:
             header_lines = (table_rows[0], table_rows[1])
             data_rows = tuple(table_rows[2:])
         else:
-            header_lines = ("| 내용 |", "| --- |")
+            # GFM은 헤더 행이 있어야 표로 인식되지만, 원문에 없는 '내용'이라는
+            # 단어를 임베딩 본문에 넣을 이유는 없다. 팀장님 결정(2026-07-28)에
+            # 따라 빈 헤더를 쓴다. 빈 셀은 실제 문서에도 그대로 나오는 형태다.
+            header_lines = ("|  |", "| --- |")
             data_rows = tuple(
                 f"| {escape_markdown_fallback_cell(row)} |" for row in table_rows
             )
@@ -832,13 +835,19 @@ def parse_markdown_table_segments(value: str) -> list[MarkdownTableSegment]:
         pending_context = []
 
     if pending_context:
-        fallback = fallback_markdown_table("\n".join(pending_context)).splitlines()
+        # 표 뒤에 남은 비표 텍스트도 1열 표로 감싸 세그먼트로 만든다. GFM은
+        # 헤더 행이 필요하지만 원문에 없는 '내용'이라는 단어를 임베딩 본문에
+        # 넣지 않는다(팀장님 결정 2026-07-28). fallback_markdown_table은 naive
+        # 경로도 쓰므로 건드리지 않고 여기서 빈 헤더로 만든다.
         segments.append(
             MarkdownTableSegment(
                 segment_index=len(segments) + 1,
                 context_lines=(),
-                header_lines=(fallback[0], fallback[1]),
-                data_rows=tuple(fallback[2:]),
+                header_lines=("|  |", "| --- |"),
+                data_rows=tuple(
+                    f"| {escape_markdown_fallback_cell(line)} |"
+                    for line in pending_context
+                ),
             )
         )
     return segments

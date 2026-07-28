@@ -27,6 +27,15 @@ from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 from rank_bm25 import BM25Okapi
 
+# 토큰 상한은 청킹 계약을 그대로 따른다. 값을 이 파일에 복사해 두면 청킹만
+# 바뀌었을 때 조용히 어긋나므로(예: 표 예외 도입) 단일 출처에서 가져온다.
+from src.chunking.advanced_chunking import (
+    DEFAULT_MAX_TOKENS as TEXT_MAX_TOKENS,
+)
+from src.chunking.advanced_chunking import (
+    DEFAULT_TABLE_MAX_TOKENS as TABLE_MAX_TOKENS,
+)
+
 DEFAULT_INPUT_PATH = Path(
     "/home/data/advanced/chunks_kss_512_51_v4/chunks_advanced_v4.jsonl.gz"
 )
@@ -59,6 +68,9 @@ class AdvancedInputContract:
     schema_version: str
     strategy_id: str
     corpus_id: str
+    # 조건마다 텍스트 상한이 다르다(512, 1024). 표는 임베딩 모델 입력
+    # 한계를 그대로 쓰므로 계약에 적지 않는다.
+    text_max_tokens: int = TEXT_MAX_TOKENS
 
 
 ADVANCED_V2_INPUT_CONTRACT = AdvancedInputContract(
@@ -78,8 +90,104 @@ ADVANCED_V2_INPUT_CONTRACT = AdvancedInputContract(
     ),
     corpus_id="advanced_v2",
 )
+# PDF 표 병합 보존, 표 통짜 유지(table_max_tokens), Markdown 원문 기호 보존을
+# 적용해 다시 만든 청크다. 표를 512 경계로 쪼개며 헤더를 반복하지 않으므로 표
+# 청크 수와 전체 토큰 수가 줄었다. 이전 계약은 과거 실행 재현용으로 남긴다.
+ADVANCED_V2_TABLE_WHOLE_INPUT_CONTRACT = AdvancedInputContract(
+    name="advanced_v2_table_merge_whole",
+    input_sha256="2d102204947a61ea4f77b96a53cee2e6ecfc87cc9bf4226e14bd3056029326b0",
+    chunk_count=54_314,
+    document_count=98,
+    total_tokens=12_002_390,
+    text_chunk_count=41_830,
+    table_chunk_count=12_484,
+    bm25_chunk_count=41_830,
+    bm25_token_total=797_788,
+    schema_version="rfp_advanced_chunk_v2",
+    strategy_id=(
+        "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_"
+        "no_text_newline_cl100k_base_512_51_v2"
+    ),
+    corpus_id="advanced_v2",
+)
+# HWP 텍스트를 section_path 단위로 묶고(문단 누적·overlap 생성), 목차 점선을 제거하고,
+# 표 병합 값을 채우고, 표 평문을 BM25 대상에 넣은 청크다. 표 BM25 평문에서 중첩 표·
+# 이미지 내부 참조까지 걷어낸 뒤의 값이다(chunks_v5b).
+ADVANCED_V2_SECTION_PACKED_INPUT_CONTRACT = AdvancedInputContract(
+    name="advanced_v2_section_packed_table_bm25",
+    input_sha256="28c48ec3796ada8fa4ae7f5eab402a57ccaa6c906a8ad047e601b68db58070d9",
+    chunk_count=17_950,
+    document_count=98,
+    total_tokens=10_111_593,
+    text_chunk_count=5_522,
+    table_chunk_count=12_428,
+    # 표도 BM25 대상이다. 내용이 중첩 표 참조뿐이어서 평문이 빈 표 23개는 제외된다.
+    bm25_chunk_count=17_927,
+    bm25_token_total=3_846_828,
+    schema_version="rfp_advanced_chunk_v2",
+    strategy_id=(
+        "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_"
+        "no_text_newline_cl100k_base_512_51_v2"
+    ),
+    corpus_id="advanced_v2",
+)
+# 경계 overlap을 토큰 단위로 보장하고(28.7% -> 99.7%), 중첩 표·이미지 참조를
+# 임베딩 본문에서 빼 metadata로 옮긴 청크다. 중첩 표 섹션 제목(**중첩 표**)도
+# 원문에 없는 문자열이라 제거했다. 구분선 없는 표 행에 붙는 합성 헤더
+# (| 내용 |) 68개는 남아 있고 다음 조건 실행 때 함께 정리한다.
+ADVANCED_V2_TOKEN_OVERLAP_INPUT_CONTRACT = AdvancedInputContract(
+    name="advanced_v2_token_overlap_reference_metadata",
+    input_sha256="62ba1a70cb4ed7d70789186c7ad9912b40cac0266af8ea1adf4dc87fb197e082",
+    chunk_count=18_258,
+    document_count=98,
+    total_tokens=10_241_620,
+    text_chunk_count=5_830,
+    table_chunk_count=12_428,
+    # 내용이 완전히 빈 표 청크 23개는 BM25에서 제외된다.
+    bm25_chunk_count=18_215,
+    bm25_token_total=3_919_283,
+    schema_version="rfp_advanced_chunk_v2",
+    strategy_id=(
+        "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_"
+        "no_text_newline_cl100k_base_512_51_v2"
+    ),
+    corpus_id="advanced_v2",
+)
+
+
+# 케이스 2: 1024토큰 / 10% overlap. 전처리는 케이스 1과 같은 preprocessed_v4를
+# 재사용하고 청킹 조건만 바꿨다. 표는 8,191 예외를 그대로 받으므로 두 조건에서
+# 거의 동일하고, 달라지는 것은 텍스트 청크다(5,830 -> 3,098).
+ADVANCED_V2_1024_INPUT_CONTRACT = AdvancedInputContract(
+    name="advanced_v2_1024_102",
+    input_sha256="a86054a34d03fc97bb8b2b221113dc314738b3d585e201efcfdaff1e7b2cf945",
+    chunk_count=15_483,
+    document_count=98,
+    total_tokens=10_182_220,
+    text_chunk_count=3_098,
+    table_chunk_count=12_385,
+    # 내용이 빈 표 세그먼트를 청크로 만들지 않으므로 모든 청크가 BM25 대상이다.
+    bm25_chunk_count=15_483,
+    bm25_token_total=3_888_655,
+    schema_version="rfp_advanced_chunk_v2",
+    strategy_id=(
+        "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_"
+        "no_text_newline_cl100k_base_1024_102_v2"
+    ),
+    corpus_id="advanced_v2",
+    text_max_tokens=1_024,
+)
+
+
 INPUT_CONTRACTS_BY_SHA256 = {
-    ADVANCED_V2_INPUT_CONTRACT.input_sha256: ADVANCED_V2_INPUT_CONTRACT
+    contract.input_sha256: contract
+    for contract in (
+        ADVANCED_V2_INPUT_CONTRACT,
+        ADVANCED_V2_TABLE_WHOLE_INPUT_CONTRACT,
+        ADVANCED_V2_SECTION_PACKED_INPUT_CONTRACT,
+        ADVANCED_V2_TOKEN_OVERLAP_INPUT_CONTRACT,
+        ADVANCED_V2_1024_INPUT_CONTRACT,
+    )
 }
 
 
@@ -120,8 +228,20 @@ METADATA_FIELDS = (
     "table_segment_index",
     "table_segment_count",
     "render_mode",
+    # 팀장님이 DB에서 overlap을 확인할 수 없다고 지적해 metadata에 노출한다.
+    # 청크 파일에는 있었지만 Chroma로 넘기지 않아 감사 자체가 불가능했다.
+    "overlap_actual_tokens",
+    "sentence_count",
     "kss_applied",
     "bm25_eligible",
+    # 팀 회의 결정(2026-07-27): 표 원본 구조를 답변 근거로 보여주기 위해
+    # table_html을 metadata에 포함한다. 큰 값이지만 표 청크에만 존재한다.
+    "table_html",
+    # 팀 회의 결정(2026-07-28): 표 안에 있던 이미지·중첩 표를 답변 근거로
+    # 되짚을 수 있게 참조 ID를 metadata에 싣는다. Chroma는 리스트를 받지 않아
+    # 공백으로 이어 붙인 문자열을 쓴다.
+    "image_ref_ids",
+    "nested_table_ref_ids",
 )
 
 
@@ -283,7 +403,12 @@ def _validate_bm25_contract(
     chunk_id: str,
     content_type: str,
 ) -> tuple[int, int]:
-    """일반 텍스트에만 Kiwi BM25 토큰이 존재하는지 검사한다."""
+    """텍스트와 표 모두 Kiwi BM25 토큰을 갖는지 검사한다.
+
+    팀 회의 결정(2026-07-27)으로 표도 BM25 대상이다. 표는 Dense 본문(Markdown)과
+    별도로 같은 청크의 ``table_plain_text``를 토큰화한다. KSS는 여전히 일반
+    텍스트에만 적용한다.
+    """
 
     tokens = row.get("bm25_tokens")
     if not isinstance(tokens, list) or any(
@@ -302,10 +427,23 @@ def _validate_bm25_contract(
     if content_type == "text":
         if bm25_eligible is not True or kss_applied is not True or not tokens:
             raise ValueError(f"일반 텍스트 BM25·KSS 계약 오류: {chunk_id}")
+        if row.get("bm25_source_field") != "embedding_text":
+            raise ValueError(f"일반 텍스트 BM25 입력 필드 오류: {chunk_id}")
         return 1, len(tokens)
 
-    if bm25_eligible is not False or kss_applied is not False or tokens:
-        raise ValueError(f"표는 BM25·KSS 대상이 될 수 없습니다: {chunk_id}")
+    # 표: KSS는 쓰지 않는다. BM25는 평문이 있을 때만 만든다.
+    if kss_applied is not False:
+        raise ValueError(f"표는 KSS 대상이 될 수 없습니다: {chunk_id}")
+    plain_text = str(row.get("table_plain_text") or "").strip()
+    source_field = row.get("bm25_source_field")
+    if bm25_eligible is True:
+        if not tokens or source_field != "table_plain_text" or not plain_text:
+            raise ValueError(f"표 BM25 계약 오류: {chunk_id}")
+        return 1, len(tokens)
+    # 내용이 중첩 표·이미지 참조뿐인 표는 평문이 비어 BM25 대상이 아니다.
+    # Dense는 그대로 색인하므로 청크 자체는 유효하다.
+    if bm25_eligible is not False or tokens or source_field is not None or plain_text:
+        raise ValueError(f"표 BM25 제외 계약 오류: {chunk_id}")
     return 0, 0
 
 
@@ -352,9 +490,17 @@ def audit_advanced_input(
         if content_type not in {"text", "table"}:
             raise ValueError(f"content_type 오류: {chunk_id}={content_type}")
 
+        # 표는 텍스트 상한 예외를 받는다. 상한은 임베딩 모델 입력 한계이므로
+        # 이 검사가 잘못된 API 호출도 함께 막는다. 텍스트 상한은 조건마다
+        # 다르므로(512, 1024) 계약에 적힌 값을 쓴다.
         token_count = row.get("token_count")
-        if not isinstance(token_count, int) or not 1 <= token_count <= 512:
-            raise ValueError(f"token_count 범위 오류: {chunk_id}={token_count}")
+        max_tokens = (
+            TABLE_MAX_TOKENS if content_type == "table" else contract.text_max_tokens
+        )
+        if not isinstance(token_count, int) or not 1 <= token_count <= max_tokens:
+            raise ValueError(
+                f"token_count 범위 오류: {chunk_id}={token_count} (상한 {max_tokens})"
+            )
         if row.get("token_count_basis") != "embedding_text":
             raise ValueError(f"token_count_basis 오류: {chunk_id}")
         if row.get("vectorize_field") != "embedding_text":

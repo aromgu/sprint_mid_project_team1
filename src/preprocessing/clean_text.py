@@ -45,8 +45,39 @@ TABLE_CONTENT_SIGNAL = re.compile(
 TOP_HEADING = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|제\s*\d+\s*장)\s*[.)]?\s*.+$")
 SAFE_HTTP_URL = re.compile(r"(?i)\bhttps?(?:\\:|:)//[^;\s\"'<>]+")
 DATA_URI = re.compile(r"\bdata:[^\s,]*,", re.IGNORECASE)
+# 목차 점선 리더. 가운뎃점 계열 5개 이상 연속만 잡아 본문의 ``···`` 생략 표기는
+# 남긴다. 마침표 리더(``......``)도 같은 목적이므로 함께 처리한다.
+LEADER_DOTS = re.compile(r"[·․‧∙⋅]{5,}|\.{5,}")
+# Markdown 표시 내용에 남으면 "표는 Markdown으로만 표현한다"는 계약을 깨는
+# 태그 이름이다. split_text와 advanced_chunking의 가드까지 모두 포함한다.
+#
+# 목록을 상수 하나로 모아 둔 이유: 이스케이프하는 쪽과 검사하는 쪽이 서로 다른
+# 목록을 쓰면 한쪽만 바뀌었을 때 조용히 어긋난다. 태그를 추가·삭제할 일이 있으면
+# 여기만 고치면 아래 두 정규식에 함께 반영된다.
+HTML_TABLE_TAG_NAMES = (
+    "table",
+    "thead",
+    "tbody",
+    "caption",
+    "tr",
+    "th",
+    "td",
+    "img",
+    "p",
+    "li",
+    "br",
+)
 HTML_TABLE_TAG = re.compile(
-    r"</?(?:table|caption|tr|th|td|img|p|li|br)\b",
+    r"</?(?:" + "|".join(HTML_TABLE_TAG_NAMES) + r")\b",
+    re.IGNORECASE,
+)
+# Markdown에서 중화할 태그다. 가드 대상에 더해, 렌더링될 경우 실행될 수 있는
+# 태그도 포함해 이전 동작의 안전성을 유지한다.
+MARKDOWN_UNSAFE_TAG_NAMES = HTML_TABLE_TAG_NAMES + ("script", "style", "iframe")
+# 위 태그로 읽히는 조각만 골라낸다. ``<`` 뒤가 태그 이름이 아니면 원문 기호이므로
+# 건드리지 않는다. 닫는 ``>``가 없어도 가드 정규식에는 걸리므로 함께 잡는다.
+MARKDOWN_HTML_TAG = re.compile(
+    r"</?(?:" + "|".join(MARKDOWN_UNSAFE_TAG_NAMES) + r")\b[^<>]*>?",
     re.IGNORECASE,
 )
 
@@ -84,14 +115,29 @@ class PreprocessingDependencyError(RuntimeError):
     """문서 형식에 필요한 파서가 설치되지 않았을 때 발생한다."""
 
 
+def collapse_leader_dots(value: str) -> str:
+    """목차 점선 리더만 공백 한 칸으로 줄인다.
+
+    팀 회의 결정(2026-07-27): 목차는 문서 구조 안내로 남기되 점선은 지운다.
+    ``1. 사업 개요 ·············· 04``처럼 목차 줄은 글자의 87%가 점선이라
+    임베딩 토큰만 잡아먹고 검색에는 기여하지 않는다. 점선을 지우면
+    ``1. 사업 개요 04``가 되어 목차 의미는 그대로 남는다.
+
+    5개 이상 연속만 대상으로 한다. 본문의 ``···`` 생략 표기는 건드리지 않는다.
+    """
+    return LEADER_DOTS.sub(" ", value)
+
+
 def normalize_text(value: str | None) -> str:
     """원문 의미를 바꾸지 않고 문자·줄바꿈·과도한 빈 줄만 정리한다.
 
     문장부호와 숫자는 그대로 두며, 여러 번 실행해도 결과가 달라지지 않는다.
     ``str.strip()``을 쓰지 않아 목록이나 예시 코드의 첫 들여쓰기도 보존한다.
+    목차 점선 리더는 ``collapse_leader_dots``로 공백 한 칸으로 줄인다.
     """
     text = unicodedata.normalize("NFC", value or "")
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = collapse_leader_dots(text)
     lines = [line.rstrip() for line in text.split("\n")]
     result: list[str] = []
     previous_blank = False
@@ -424,15 +470,30 @@ def classify_table(block: Any) -> tuple[str, str, str]:
     return "layout", "flatten", "layout_table_text_flattened"
 
 
-def escape_markdown_cell(value: str) -> str:
-    """표 셀을 HTML 없이 한 줄로 만들고 Markdown 구분자를 이스케이프한다."""
-    single_line = re.sub(r"\n+", " / ", normalize_text(value))
-    return (
-        single_line.replace("\\", "\\\\")
-        .replace("|", r"\|")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
+def neutralize_html_table_tags(value: str) -> str:
+    """HTML 표 태그로 읽히는 조각만 엔티티로 바꾼다.
+
+    Markdown 표시 내용에는 표 HTML이 남으면 안 된다. 그렇다고 모든 ``<``·``>``를
+    엔티티로 바꾸면 ``공통 > 기준정보관리``나 ``<H/W 공통 요구사항>`` 같은 원문
+    기호까지 ``&gt;``로 바뀌어 임베딩 본문이 원문과 달라진다. 그래서 실제 표
+    태그 이름이 뒤따르는 경우에만 이스케이프한다.
+    """
+    return MARKDOWN_HTML_TAG.sub(
+        lambda match: match.group(0).replace("<", "&lt;").replace(">", "&gt;"),
+        value,
     )
+
+
+def escape_markdown_cell(value: str) -> str:
+    """표 셀을 한 줄로 만들고 Markdown 구분자만 이스케이프한다.
+
+    ``>``·``<``·``&``는 원문 그대로 남긴다. ``table_markdown``은 Dense 임베딩
+    본문이라 HTML 엔티티가 섞이면 원문과 다른 텍스트가 임베딩된다. HTML
+    이스케이프는 ``table_html`` 전용이다(table_formats._escape_html_text).
+    """
+    single_line = re.sub(r"\n+", " / ", normalize_text(value))
+    escaped = single_line.replace("\\", "\\\\").replace("|", r"\|")
+    return neutralize_html_table_tags(escaped)
 
 
 def picture_alt(block: Any, picture_id: str) -> str:
@@ -446,30 +507,77 @@ def render_picture_placeholder(block: Any, picture_id: str) -> str:
     """이미지 바이트 대신 안정적인 ``image://`` 참조만 만든다."""
     uri = f"image://{picture_id}"
     alt = picture_alt(block, picture_id)
-    escaped_alt = (
-        alt.replace("\\", "\\\\")
-        .replace("[", r"\[")
-        .replace("]", r"\]")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
+    # 대체 텍스트도 표 Markdown에 들어가므로 셀과 같은 규칙을 적용한다.
+    # ``[``·``]``는 Markdown 링크 문법을 깨뜨리므로 이스케이프하고, 원문
+    # 기호(``>``·``<``·``&``)는 escape_markdown_cell과 마찬가지로 보존한다.
+    escaped_alt = neutralize_html_table_tags(
+        alt.replace("\\", "\\\\").replace("[", r"\[").replace("]", r"\]")
     )
     return f"![{escaped_alt}]({uri})"
+
+
+REFERENCE_MODE_INLINE = "inline"
+REFERENCE_MODE_METADATA = "metadata"
+
+
+def table_reference_ids(
+    block: Any,
+    table_ids: Mapping[int, str],
+    picture_ids: Mapping[int, str],
+) -> tuple[list[str], list[str]]:
+    """표 안에 있던 중첩 표·이미지 참조 ID를 문서 순서대로 모은다.
+
+    ``reference_mode="metadata"``로 렌더링하면 본문에서 참조 표기가 사라지므로,
+    어떤 표·이미지가 이 표 안에 있었는지는 이 목록으로만 알 수 있다. 위치는
+    ``table_html``이 보존한다.
+    """
+    nested: list[str] = []
+    pictures: list[str] = []
+    for child, _ in walk_blocks_with_depth(child_blocks(block)):
+        kind = kind_name(child)
+        if kind == "table":
+            table_id = table_ids.get(id(child))
+            if table_id and table_id not in nested:
+                nested.append(table_id)
+        elif kind == "picture":
+            picture_id = picture_ids.get(id(child))
+            if picture_id and picture_id not in pictures:
+                pictures.append(picture_id)
+    return nested, pictures
 
 
 def render_markdown_cell_block(
     block: Any,
     table_ids: dict[int, str],
     picture_ids: dict[int, str],
+    *,
+    include_media: bool = True,
+    reference_mode: str = REFERENCE_MODE_INLINE,
 ) -> str:
     """셀 자식을 HTML 없이 Markdown 한 조각으로 바꾼다.
 
-    중첩 표는 셀 안에 다시 그리지 않고 ID만 남긴다. 실제 표는 부모 표 아래에
-    별도 Markdown 표로 펼쳐 이미지와 표 내용이 중복되는 일을 막는다.
+    중첩 표는 셀 안에 다시 그리지 않는다. 실제 표는 부모 표 아래에 별도
+    Markdown 표로 펼쳐 이미지와 표 내용이 중복되는 일을 막는다.
+
+    ``reference_mode``는 중첩 표·이미지 참조를 어디에 둘지 정한다.
+    ``inline``은 셀에 ``[중첩 표: ID]``·``![...](image://ID)`` 표기를 남기고,
+    ``metadata``는 본문에서 완전히 빼고 청크 metadata에만 남긴다. 팀 회의
+    결정(2026-07-28)에 따라 Advanced 경로는 ``metadata``를 쓴다. 참조 ID가
+    임베딩 본문에 있으면 검색어가 아닌 식별자가 임베딩되고, Kiwi가 ID를
+    토큰으로 쪼개 어휘 색인까지 오염시킨다. 셀 위치는 ``table_html``의
+    ``<table>``·``<img src="image://...">``가 그대로 보존한다.
+
+    ``include_media=False``는 병합 셀을 아래·오른쪽 칸에 반복해 채울 때 쓴다.
+    이미지와 중첩 표 참조는 부모 블록 안에 한 번만 있어야 하므로 반복 대상에서
+    제외하고 텍스트만 남긴다.
     """
     kind = kind_name(block)
+    keep_reference = include_media and reference_mode == REFERENCE_MODE_INLINE
     if kind == "table":
-        return f"[중첩 표: {table_ids[id(block)]}]"
+        return f"[중첩 표: {table_ids[id(block)]}]" if keep_reference else ""
     if kind == "picture":
+        if not keep_reference:
+            return ""
         return render_picture_placeholder(block, picture_ids[id(block)])
     if kind == "list_item":
         own = list_item_display_text(block)
@@ -484,7 +592,13 @@ def render_markdown_cell_block(
         # 일반 문단의 text에는 보통 자식 텍스트가 이미 들어 있다. 표와 그림은
         # 별도 구조이므로 항상 추가하고, own이 없을 때만 일반 자식을 펼친다.
         if child_kind in {"table", "picture"} or not own:
-            rendered = render_markdown_cell_block(child, table_ids, picture_ids)
+            rendered = render_markdown_cell_block(
+                child,
+                table_ids,
+                picture_ids,
+                include_media=include_media,
+                reference_mode=reference_mode,
+            )
             if rendered:
                 parts.append(rendered)
     return normalize_text("\n".join(parts))
@@ -513,8 +627,13 @@ def render_table_gfm(
     block: Any,
     table_ids: dict[int, str],
     picture_ids: dict[int, str],
+    *,
+    reference_mode: str = REFERENCE_MODE_INLINE,
 ) -> str:
-    """단순·병합·중첩 표를 모두 GFM Markdown으로 만든다."""
+    """단순·병합·중첩 표를 모두 GFM Markdown으로 만든다.
+
+    ``reference_mode``는 ``render_markdown_cell_block``과 같은 의미다.
+    """
     cells = list(getattr(block, "cells", []) or [])
     declared_rows = max(int(getattr(block, "rows", 0) or 0), 0)
     declared_cols = max(int(getattr(block, "cols", 0) or 0), 0)
@@ -558,26 +677,50 @@ def render_table_gfm(
             continue
         row_span = max(int(getattr(cell, "row_span", 1) or 1), 1)
         col_span = max(int(getattr(cell, "col_span", 1) or 1), 1)
+        cell_blocks = list(getattr(cell, "blocks", []) or [])
         values = [
-            render_markdown_cell_block(child, table_ids, picture_ids)
-            for child in (getattr(cell, "blocks", []) or [])
+            render_markdown_cell_block(
+                child,
+                table_ids,
+                picture_ids,
+                reference_mode=reference_mode,
+            )
+            for child in cell_blocks
         ]
         content = "\n".join(value for value in values if value)
-        if row_span > 1 or col_span > 1:
-            content = f"[병합 {row_span}행×{col_span}열] {content}".rstrip()
         escaped_content = escape_markdown_cell(content)
-        merge_reference = escape_markdown_cell(
-            f"[병합 {row_span}행×{col_span}열 계속: {row + 1}행 {col + 1}열 참조]"
-        )
 
-        # GFM에는 rowspan/colspan이 없다. 원점에는 전체 내용을, 나머지 칸에는
-        # 원점 참조를 넣는다. 이미지 URI까지 반복해 출력하지 않기 위함이다.
+        # GFM에는 rowspan/colspan이 없다. 병합 구조는 table_html이 보존하므로
+        # Markdown에는 사람이 읽는 주석(`[병합 …]`)을 넣지 않고 값을 그대로
+        # 반복해 채운다. 임베딩 본문에 원문에 없는 문자열을 넣지 않고, 각 행이
+        # 분류값을 갖춘 완결 행이 되어 행 단위 검색이 된다. PDF 표의
+        # forward-fill과 같은 방식이다.
+        #
+        # 다만 이미지와 중첩 표 참조는 부모 블록 안에 한 번만 있어야 하므로
+        # 반복하지 않고 원점 칸에만 남긴다.
+        if row_span > 1 or col_span > 1:
+            fill_values = [
+                render_markdown_cell_block(
+                    child,
+                    table_ids,
+                    picture_ids,
+                    include_media=False,
+                    reference_mode=reference_mode,
+                )
+                for child in cell_blocks
+            ]
+            escaped_fill = escape_markdown_cell(
+                "\n".join(value for value in fill_values if value)
+            )
+        else:
+            escaped_fill = escaped_content
+
         for target_row in range(row, min(row + row_span, rows)):
             for target_col in range(col, min(col + col_span, cols)):
                 if target_row == row and target_col == col:
                     grid[target_row][target_col] = escaped_content
                 elif not grid[target_row][target_col]:
-                    grid[target_row][target_col] = merge_reference
+                    grid[target_row][target_col] = escaped_fill
 
     lines = [
         "| " + " | ".join(grid[0]) + " |",
@@ -587,13 +730,33 @@ def render_table_gfm(
     sections: list[str] = ["\n".join(lines)]
     caption = caption_text(block)
     if caption:
-        safe_caption = caption.replace("<", "&lt;").replace(">", "&gt;")
+        # 캡션은 표 위에 그대로 붙어 임베딩 본문이 된다. ``<사후변경 ...>``처럼
+        # 꺾쇠로 감싼 제목이 실제로 많으므로 원문 기호를 보존해야 한다.
+        # 셀이 아니라 파이프 이스케이프는 필요 없고 태그 중화만 한다.
+        safe_caption = neutralize_html_table_tags(caption)
         sections[0] = f"{safe_caption}\n\n{sections[0]}"
 
     for nested in direct_nested_tables(block):
         nested_id = table_ids[id(nested)]
-        nested_markdown = render_table_gfm(nested, table_ids, picture_ids)
-        sections.append(f"**중첩 표 `{nested_id}`**\n\n{nested_markdown}")
+        nested_markdown = render_table_gfm(
+            nested,
+            table_ids,
+            picture_ids,
+            reference_mode=reference_mode,
+        )
+        # 팀장님 결정(2026-07-28): metadata 모드에서는 제목을 아예 넣지 않는다.
+        # "**중첩 표**"는 원문에 없는 문자열이라 병합 주석([병합 3행x2열])을
+        # 걷어낸 것과 같은 이유로 임베딩 본문에서 빼야 하고, Kiwi가 '중첩'·'표'
+        # 토큰을 743개 청크에 더해 어휘 색인도 오염시킨다.
+        #
+        # 제목이 없어도 세그먼트는 그대로 나뉜다. parse_markdown_table_segments는
+        # 연속한 표 행 묶음으로 나누므로 sections 사이의 빈 줄이 경계가 된다.
+        # 어떤 중첩 표였는지는 nested_table_ref_ids와 table_segment_index로
+        # 되짚고, 셀 위치는 table_html이 보존한다.
+        if reference_mode == REFERENCE_MODE_INLINE:
+            sections.append(f"**중첩 표 `{nested_id}`**\n\n{nested_markdown}")
+        else:
+            sections.append(nested_markdown)
     return "\n\n".join(sections)
 
 

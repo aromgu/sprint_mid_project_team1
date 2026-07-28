@@ -38,7 +38,9 @@ from src.chunking.advanced_chunking import (
     extract_page_marker_numbers,
     normalize_text_for_embedding,
     pack_sentence_spans,
+    table_markdown_to_plain_text,
     validate_advanced_chunks,
+    validate_advanced_config,
 )
 
 
@@ -332,6 +334,22 @@ def test_default_config_uses_512_limit_and_51_target_overlap() -> None:
     assert config.min_tail_tokens == 51
 
 
+def test_default_config_exempts_tables_up_to_embedding_model_limit() -> None:
+    """표는 같은 표가 쪼개지지 않도록 512 상한 예외를 받고 8,191까지 허용한다."""
+    config = AdvancedChunkConfig()
+
+    assert config.table_max_tokens == 8191
+    assert config.table_max_tokens > config.max_tokens
+
+
+def test_validate_advanced_config_rejects_table_limit_below_text_limit() -> None:
+    """table_max_tokens가 max_tokens보다 작은 설정은 거부한다."""
+    config = AdvancedChunkConfig(max_tokens=512, table_max_tokens=511)
+
+    with pytest.raises(ValueError, match="table_max_tokens"):
+        validate_advanced_config(config)
+
+
 def test_advanced_chunk_output_contract_is_versioned_v2() -> None:
     """의미 기반 tail 변경은 v1과 충돌하지 않는 별도 스키마·전략을 쓴다."""
     assert SCHEMA_VERSION == "rfp_advanced_chunk_v2"
@@ -516,8 +534,8 @@ def test_decorative_bullet_omitted_by_kss_stays_in_raw_text() -> None:
     assert spans[0].raw_text.startswith("⦁\U000f0854")
 
 
-def test_hwp_text_streams_never_cross_section_and_paragraph_boundary() -> None:
-    """HWP에서는 같은 section이어도 서로 다른 para를 합치지 않는다."""
+def test_hwp_text_streams_join_paragraphs_within_one_section() -> None:
+    """HWP는 같은 section의 연속 문단을 합치고 section 경계는 넘지 않는다."""
     document = make_document(file_type="hwp")
     blocks = [
         make_text_block(1, "첫 문단입니다.", section_idx=0, para_idx=7),
@@ -528,12 +546,56 @@ def test_hwp_text_streams_never_cross_section_and_paragraph_boundary() -> None:
 
     streams = build_advanced_text_streams(document, blocks)
 
-    assert len(streams) == 3
+    assert len(streams) == 2
+    assert "첫 문단" in streams[0].text
+    assert "둘째 문단" in streams[0].text
+    assert "다른 절" not in streams[0].text
+    assert "다른 절" in streams[1].text
+    # boundary_id는 각 stream 첫 블록 것을 유지한다.
     assert [stream.boundary_id for stream in streams] == [
-        block["kss_boundary_id"] for block in blocks
+        blocks[0]["kss_boundary_id"],
+        blocks[2]["kss_boundary_id"],
     ]
+    # KSS는 stream 단위로 호출되므로 같은 section 문단은 한 번에 들어간다.
     run_corpus([document], blocks, kss=kss)
-    assert kss.calls == [block["text"] for block in blocks]
+    assert len(kss.calls) == 2
+    assert "첫 문단" in kss.calls[0] and "둘째 문단" in kss.calls[0]
+
+
+def test_multi_paragraph_chunk_passes_section_boundary_gate() -> None:
+    """문단을 묶은 stream의 청크도 section 경계 게이트를 통과한다.
+
+    청크는 stream 첫 블록의 boundary를 기록하므로 그 청크가 담은 블록의 문단
+    번호와 다를 수 있다. 게이트는 문단 번호가 아니라 section 범위로 대조해야
+    한다.
+    """
+    document = make_document(file_type="hwp")
+    blocks = [
+        make_text_block(
+            index,
+            f"{index}번째 문단입니다. " * 12,
+            section_idx=0,
+            para_idx=index,
+        )
+        for index in range(1, 9)
+    ]
+    for block in blocks:
+        block["section_path"] = "Ⅰ. 추진개요"
+
+    result = run_corpus([document], blocks)
+
+    # 한 stream이 512를 넘어 여러 청크로 쪼개졌고, 뒤 청크의 블록은 첫 문단이
+    # 아니다. 그래도 검증은 통과해야 한다.
+    text_chunks = [c for c in result.chunks if c["content_type"] == "text"]
+    assert len(text_chunks) > 1
+    assert result.summary["validation"]["overall_pass"] is True
+    assert result.summary["validation"]["gates"][
+        "pdf_page_and_hwp_section_boundaries_are_preserved"
+    ]
+    later = text_chunks[-1]
+    covered = set(later["source_block_ids"])
+    assert blocks[0]["block_id"] not in covered
+    assert later["kss_boundary_id"] == blocks[0]["kss_boundary_id"]
 
 
 def test_pdf_text_streams_join_only_blocks_on_the_same_page() -> None:
@@ -578,8 +640,9 @@ def test_pdf_page_marker_after_table_is_metadata_only() -> None:
     result = run_corpus([document], [table, marker], kss=kss, kiwi=kiwi)
 
     assert [chunk["content_type"] for chunk in result.chunks] == ["table"]
+    # KSS는 호출되지 않는다. Kiwi는 표 평문만 받고 페이지 표식은 받지 않는다.
     assert kss.calls == []
-    assert kiwi.calls == []
+    assert kiwi.calls == ["구분 내용 기간 90일"]
     assert result.summary["page_marker_block_count"] == 1
     assert result.summary["page_marker_vectorized_block_count"] == 0
     assert result.summary["page_marker_metadata_only_block_count"] == 1
@@ -762,19 +825,24 @@ def test_only_general_text_calls_kss_and_kiwi() -> None:
 
     result = run_corpus([document], [text, table, image], kss=kss, kiwi=kiwi)
 
+    # KSS는 일반 텍스트만 본다. Kiwi는 표 평문까지 토큰화한다(팀 회의 결정).
     assert kss.calls == [text["text"]]
     assert kiwi.calls
-    assert all("표행" not in call for call in kiwi.calls)
+    assert any("표행" in call for call in kiwi.calls)
     assert [chunk["content_type"] for chunk in result.chunks] == ["text", "table"]
     text_chunk, table_chunk = result.chunks
     assert text_chunk["bm25_tokens"]
-    assert table_chunk["bm25_tokens"] == []
-    assert table_chunk["bm25_pos_policy"] is None
-    assert table_chunk["bm25_excluded_pos_prefixes"] == []
+    assert text_chunk["bm25_source_field"] == "embedding_text"
+    assert table_chunk["bm25_tokens"]
+    assert table_chunk["bm25_source_field"] == "table_plain_text"
+    assert table_chunk["kss_applied"] is False
+    # 표 평문에는 Markdown 파이프와 구분선이 남지 않는다.
+    assert "|" not in table_chunk["table_plain_text"]
+    assert "표행" in table_chunk["table_plain_text"]
 
 
-def test_kiwi_excludes_only_josa_and_eomi_prefixes() -> None:
-    """팀 합의대로 J*·E*만 제외하고 다른 품사는 임의로 버리지 않는다."""
+def test_kiwi_keeps_all_pos_and_strips_special_characters() -> None:
+    """팀 회의 결정대로 품사로 걸러내지 않고 특수문자만 제거한다."""
     document = make_document()
     block = make_text_block(1, "Kiwi 품사 필터를 검증합니다.")
     kiwi = TaggedKiwiSpy(
@@ -796,20 +864,21 @@ def test_kiwi_excludes_only_josa_and_eomi_prefixes() -> None:
     result = run_corpus([document], [block], kiwi=kiwi)
     chunk = result.chunks[0]
 
+    # 조사(은)·어미(ㅂ니다)도 남고, 순수 특수문자(., §)는 사라진다.
     assert chunk["bm25_tokens"] == [
         "사업",
+        "은",
         "수행",
         "하",
+        "ㅂ니다",
         "아",
-        ".",
-        "§",
         "미등록",
         "api",
     ]
-    assert chunk["bm25_pos_policy"] == "exclude_josa_eomi_prefix_v1"
-    assert chunk["bm25_excluded_pos_prefixes"] == ["J", "E"]
-    assert chunk["bm25_token_normalization"] == "strip_casefold"
-    assert result.summary["bm25_excluded_pos_prefixes"] == ["J", "E"]
+    assert chunk["bm25_pos_policy"] == "strip_special_characters_v1"
+    assert chunk["bm25_excluded_pos_prefixes"] == []
+    assert chunk["bm25_token_normalization"] == "strip_special_casefold"
+    assert result.summary["bm25_excluded_pos_prefixes"] == []
 
 
 def test_sentence_packing_respects_512_and_exact_51_when_possible() -> None:
@@ -1020,13 +1089,18 @@ def test_short_final_chunk_uses_safe_overlap_when_sentence_cannot_move() -> None
 
     packed = pack_sentence_spans(spans, codec=CODEC, config=CONFIG)
 
-    assert [len(CODEC.encode(part["text"])) for part in packed] == [500, 51]
-    assert packed[-1]["text"] == first[-31:] + tail
-    assert packed[-1]["overlap_actual_tokens"] == 31
+    # 온전한 문장 overlap이 불가능해 토큰 경계로 51을 붙인다(20 + 51).
+    assert [len(CODEC.encode(part["text"])) for part in packed] == [500, 71]
+    assert packed[-1]["text"] == first[-51:] + tail
+    assert packed[-1]["overlap_actual_tokens"] == 51
+    assert packed[-1]["token_slice_overlap"] is True
+    assert packed[-1]["overlap_sentence_count"] == 0
+    # 경계에서 이미 51토큰 overlap을 붙였으므로 짧은 tail 보수는 별도의 안전
+    # overlap을 다시 만들 필요가 없다. 있는 overlap을 문맥으로 인정하고 끝낸다.
     assert packed[-1]["short_tail_adjusted"] is True
-    assert packed[-1]["short_tail_token_overlap_fallback"] is True
-    assert packed[-1]["short_tail_adjustment_mode"] == "safe_token_overlap_fallback"
-    assert packed[-1]["short_tail_context_added_tokens"] == 31
+    assert packed[-1]["short_tail_token_overlap_fallback"] is False
+    assert packed[-1]["short_tail_adjustment_mode"] == "existing_overlap_context"
+    assert packed[-1]["short_tail_context_added_tokens"] == 51
 
 
 def test_final_chunk_at_tail_minimum_and_single_short_stream_are_unchanged() -> None:
@@ -1047,7 +1121,8 @@ def test_final_chunk_at_tail_minimum_and_single_short_stream_are_unchanged() -> 
     exact = pack_sentence_spans(exact_spans, codec=CODEC, config=CONFIG)
     single = pack_sentence_spans(single_spans, codec=CODEC, config=CONFIG)
 
-    assert [len(CODEC.encode(part["text"])) for part in exact] == [500, 51]
+    # tail이 min_tail을 만족해도 경계에는 overlap이 필요하다(51 + 51).
+    assert [len(CODEC.encode(part["text"])) for part in exact] == [500, 102]
     assert all(part["short_tail_adjusted"] is False for part in exact)
     assert len(single) == 1
     assert single[0]["text"] == "다" * 20
@@ -1076,13 +1151,76 @@ def test_oversized_single_sentence_uses_token_fallback_without_loss() -> None:
     assert rebuilt == source
 
 
-def test_markdown_table_splits_by_whole_rows_and_repeats_header() -> None:
-    """큰 표는 Markdown 행 단위로 나누고 모든 후속 조각에 헤더를 반복한다."""
+def test_table_plain_text_drops_internal_references() -> None:
+    """BM25 평문에서 중첩 표 ID와 이미지 참조를 걷어낸다.
+
+    내부 식별자는 검색어가 아니라 구조 안내다. 그대로 두면 표 ID가 토큰으로
+    쪼개져 어휘 색인을 오염시킨다. Dense 본문에는 남기고 평문에서만 뺀다.
+    """
+    markdown = "\n".join(
+        [
+            "| 구분 | 내용 |",
+            "| --- | --- |",
+            "| 개요 | [중첩 표: 65c9785a157c8f55:body:T000003] |",
+            "| 도식 | ![이미지 abc:body:I000002](image://abc:body:I000002) |",
+            "| 기간 | 90일 |",
+        ]
+    )
+
+    plain = table_markdown_to_plain_text(markdown)
+
+    assert "중첩 표" not in plain
+    assert "T000003" not in plain
+    assert "image://" not in plain
+    assert "I000002" not in plain
+    # 실제 셀 값은 남는다.
+    assert "구분" in plain and "개요" in plain and "90일" in plain
+    assert "|" not in plain
+
+
+def test_table_larger_than_text_limit_stays_in_one_chunk() -> None:
+    """같은 표는 512 토큰을 넘어도 table_max_tokens 안이면 한 청크로 유지한다."""
     header = ["| 구분 | 내용 |", "| --- | --- |"]
     rows = [f"| 행{i:02d} | {'가' * 20} |" for i in range(40)]
     markdown = "\n".join([*header, *rows])
     document = make_document()
     block = make_table_block(1, markdown)
+
+    chunks = chunk_advanced_table_block(
+        document,
+        block,
+        codec=CODEC,
+        config=CONFIG,
+    )
+
+    table_token_count = len(CODEC.encode(markdown))
+    assert table_token_count > CONFIG.max_tokens
+    assert table_token_count <= CONFIG.table_max_tokens
+    assert len(chunks) == 1
+    chunk = chunks[0]
+    assert chunk["content_type"] == "table"
+    assert chunk["table_id"] == block["table_id"]
+    assert chunk["bm25_tokens"] == []
+    assert chunk["embedding_text_normalization"] == "preserve_markdown_newlines"
+    assert chunk["table_header_repeated"] is False
+    assert chunk["table_part_index"] == 1
+    assert chunk["table_part_count"] == 1
+    assert chunk["quality_flags"] == []
+
+    lines = chunk["embedding_text"].splitlines()
+    assert lines[:2] == header
+    assert lines[2:] == rows
+
+
+def test_markdown_table_splits_by_whole_rows_and_repeats_header() -> None:
+    """table_max_tokens를 넘는 표만 Markdown 행 단위로 나누고 헤더를 반복한다."""
+    header = ["| 구분 | 내용 |", "| --- | --- |"]
+    rows = [f"| 행{i:03d} | {'가' * 30} |" for i in range(400)]
+    markdown = "\n".join([*header, *rows])
+    document = make_document()
+    block = make_table_block(1, markdown)
+
+    assert len(CODEC.encode(markdown)) > CONFIG.table_max_tokens
 
     chunks = chunk_advanced_table_block(
         document,
@@ -1100,7 +1238,10 @@ def test_markdown_table_splits_by_whole_rows_and_repeats_header() -> None:
         for chunk in chunks
     )
     assert all("\n" in chunk["embedding_text"] for chunk in chunks)
-    assert all(len(CODEC.encode(chunk["embedding_text"])) <= 512 for chunk in chunks)
+    assert all(
+        len(CODEC.encode(chunk["embedding_text"])) <= CONFIG.table_max_tokens
+        for chunk in chunks
+    )
     assert chunks[0]["table_header_repeated"] is False
     assert all(chunk["table_header_repeated"] is True for chunk in chunks[1:])
     assert [chunk["table_part_index"] for chunk in chunks] == list(
@@ -1117,17 +1258,19 @@ def test_markdown_table_splits_by_whole_rows_and_repeats_header() -> None:
 
 
 def test_oversized_table_row_with_multiline_context_stays_within_budget() -> None:
-    """표 제목이 포함된 긴 행 fallback은 헤더를 중복 삽입하지 않는다."""
+    """표 제목이 포함된, table_max_tokens를 넘는 긴 행 fallback은 헤더를 중복 삽입하지 않는다."""
     markdown = "\n".join(
         [
             "요구사항 상세 표",
             "| 구분 | 내용 |",
             "| --- | --- |",
-            f"| 기능 | {'가' * 900} |",
+            f"| 기능 | {'가' * 8300} |",
         ]
     )
     document = make_document()
     block = make_table_block(1, markdown)
+
+    assert len(CODEC.encode(markdown)) > CONFIG.table_max_tokens
 
     chunks = chunk_advanced_table_block(
         document,
@@ -1137,7 +1280,10 @@ def test_oversized_table_row_with_multiline_context_stays_within_budget() -> Non
     )
 
     assert len(chunks) > 1
-    assert all(len(CODEC.encode(chunk["embedding_text"])) <= 512 for chunk in chunks)
+    assert all(
+        len(CODEC.encode(chunk["embedding_text"])) <= CONFIG.table_max_tokens
+        for chunk in chunks
+    )
     assert all(
         chunk["embedding_text"].count("요구사항 상세 표") == 1 for chunk in chunks
     )

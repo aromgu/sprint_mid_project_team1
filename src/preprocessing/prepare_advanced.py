@@ -284,7 +284,7 @@ def _hwp_base_and_formats(
     *,
     analysis_source: VerifiedAnalysisSource | None,
     rhwp_module: Any | None,
-) -> tuple[PreprocessingResult, dict[str, dict[str, str]]]:
+) -> tuple[PreprocessingResult, dict[str, dict[str, Any]]]:
     """HWP를 한 번만 to_ir한 뒤 기존 구조와 이중 표 표현을 함께 만든다."""
     parser = rhwp_module or _load_rhwp_module()
     selected_path = _analysis_path(source, analysis_source)
@@ -309,7 +309,7 @@ def _hwp_base_and_formats(
     table_ids, picture_ids, _, _ = build_hwp_structure_maps(ir, source.source_id)
     roots = list(getattr(ir, "body", []) or [])
     roots.extend(block for block, _ in furniture_roots_with_type(ir))
-    formats: dict[str, dict[str, str]] = {}
+    formats: dict[str, dict[str, Any]] = {}
     for block, _ in walk_blocks_with_depth(roots):
         if kind_name(block) != "table":
             continue
@@ -326,10 +326,10 @@ def _pdf_table_formats(
     source: SourceDocument,
     parser: Any,
     analysis_source: VerifiedAnalysisSource | None,
-) -> dict[str, dict[str, str]]:
+) -> dict[str, dict[str, Any]]:
     """기존 PDF 표 탐지 순서와 같은 ID로 HTML·Markdown을 다시 만든다."""
     selected_path = _analysis_path(source, analysis_source)
-    formats: dict[str, dict[str, str]] = {}
+    formats: dict[str, dict[str, Any]] = {}
     table_number = 0
     with parser.open(selected_path) as pdf:
         for page in pdf.pages:
@@ -342,9 +342,24 @@ def _pdf_table_formats(
                     matrix = detected_table.extract() or []
                 except Exception:
                     continue
+                # 병합(rowspan/colspan) 복원용 셀 좌표를 함께 넘긴다.
+                # extract()가 돌려주는 행렬은 병합을 잃고 평면화되지만,
+                # Table.cells에는 각 셀의 (x0, top, x1, bottom)이 남아 있어
+                # build_pdf_table_grid가 격자를 되살릴 수 있다. 좌표를 못 얻으면
+                # None을 넘겨 기존 평면 표현으로 그대로 되돌아간다.
+                try:
+                    cell_bboxes = [
+                        tuple(cell)
+                        for cell in (getattr(detected_table, "cells", None) or [])
+                        if cell is not None
+                    ]
+                except Exception:
+                    cell_bboxes = None
                 table_number += 1
                 table_id = f"{source.source_id}:pdf:T{table_number:06d}"
-                formats[table_id] = build_pdf_table_formats(matrix, table_id)
+                formats[table_id] = build_pdf_table_formats(
+                    matrix, table_id, cell_bboxes=cell_bboxes
+                )
     return formats
 
 
@@ -353,7 +368,7 @@ def _pdf_base_and_formats(
     *,
     analysis_source: VerifiedAnalysisSource | None,
     pdfplumber_module: Any | None,
-) -> tuple[PreprocessingResult, dict[str, dict[str, str]]]:
+) -> tuple[PreprocessingResult, dict[str, dict[str, Any]]]:
     """PDF 기본 구조를 만든 뒤 같은 탐지 순서로 표 HTML을 생성한다."""
     parser = pdfplumber_module or importlib.import_module("pdfplumber")
     base_result = preprocess_document(
@@ -384,7 +399,7 @@ def _content_type(block: dict[str, Any]) -> str:
     return "text"
 
 
-def _pdf_fallback_table_formats(block: dict[str, Any]) -> dict[str, str]:
+def _pdf_fallback_table_formats(block: dict[str, Any]) -> dict[str, Any]:
     """불완전 PDF 표의 bbox 원문을 HTML·Markdown 표로 만든다.
 
     기본 전처리가 검증된 셀 경계로 복원한 행렬이 있으면 원래 열 구조를
@@ -450,7 +465,7 @@ def _build_advanced_block(
     block: dict[str, Any],
     *,
     file_type: str,
-    table_formats: dict[str, dict[str, str]],
+    table_formats: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     """중복 표시 문자열을 제거하고 유형별 전용 내용 필드를 만든다."""
     source_schema_version = str(block.get("schema_version") or "")
@@ -473,6 +488,8 @@ def _build_advanced_block(
     table_markdown: str | None = None
     image_uri: str | None = None
     vectorize_field: str | None = None
+    nested_table_refs: list[str] = []
+    image_refs: list[str] = []
     kss_eligible = False
     bm25_eligible = False
     dense_eligible = False
@@ -490,6 +507,10 @@ def _build_advanced_block(
             formats = table_formats[table_id]
         table_html = formats["table_html"]
         table_markdown = formats["table_markdown"]
+        # 팀 회의 결정(2026-07-28): 중첩 표·이미지 참조는 임베딩 본문에서 빼고
+        # 청크 metadata로만 남긴다. 참조의 셀 위치는 table_html이 보존한다.
+        nested_table_refs = list(formats.get("nested_table_refs") or [])
+        image_refs = list(formats.get("image_refs") or [])
         dense_eligible = indexable and bool(compact_text(table_markdown))
         vectorize_field = "table_markdown" if dense_eligible else None
     elif content_type == "image":
@@ -520,6 +541,8 @@ def _build_advanced_block(
         "text": text,
         "table_html": table_html,
         "table_markdown": table_markdown,
+        "nested_table_refs": nested_table_refs,
+        "image_refs": image_refs,
         "image_uri": image_uri,
         "vectorize_field": vectorize_field,
         "dense_eligible": dense_eligible,
@@ -535,7 +558,7 @@ def _build_advanced_block(
 def build_advanced_result(
     manifest_document: dict[str, Any],
     base_result: PreprocessingResult,
-    table_formats: dict[str, dict[str, str]],
+    table_formats: dict[str, dict[str, Any]],
 ) -> AdvancedPreprocessingResult:
     """기존 구조 결과를 Advanced 전용 content/metadata 계약으로 변환한다."""
     source_id = str(manifest_document.get("source_id") or "")

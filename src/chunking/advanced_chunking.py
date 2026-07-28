@@ -13,9 +13,11 @@ Naive RAG의 Recursive 512/102 코드와 결과를 변경하지 않고, 다음 �
 * PDF 페이지 끝의 ``- 123 -`` 표식은 임베딩 본문에서 항상 제외하고,
   원본 블록과 실제 PDF ``page`` metadata로만 보존한다.
 * 표는 KSS·Kiwi에서 제외하고 ``table_markdown``만 Dense 본문으로 쓴다.
-* 표가 크면 행 경계로 나누고 뒤 part에 헤더를 반복한다.
-* 일반 텍스트 청크만 Kiwi 형태소에서 조사(J*)·어미(E*)를 제외해 별도
-  ``bm25_tokens``에 저장한다.
+* 표는 512 상한 예외로 같은 표를 여러 청크로 쪼개지 않는다. 임베딩 모델
+  입력 상한(``table_max_tokens``, 기본 8,191 토큰)을 넘는 표만 행 경계로
+  나누고 뒤 part에 헤더를 반복한다.
+* BM25는 일반 텍스트의 ``embedding_text``와 표의 ``table_plain_text``를 Kiwi로
+  토큰화해 ``bm25_tokens``에 저장한다. 품사로 걸러내지 않고 특수문자만 제거한다.
 * 파일명·위치·유형은 metadata로 보존하되 임베딩 본문에 prefix로 붙이지 않는다.
 
 KSS는 내부 공백을 정규화할 수 있다. 따라서 KSS 반환 문자열을 저장하지 않고
@@ -46,17 +48,42 @@ from src.chunking.split_text import (
 )
 
 SCHEMA_VERSION = "rfp_advanced_chunk_v2"
-STRATEGY_ID = (
-    "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_no_text_newline_"
-    "cl100k_base_512_51_v2"
+STRATEGY_BASE = (
+    "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_no_text_newline_cl100k_base"
 )
+
+
+def strategy_id_for(max_tokens: int, overlap_tokens: int) -> str:
+    """토큰 조건을 이름에 박아 조건과 strategy_id가 어긋나지 않게 한다.
+
+    512/51을 문자열로 적어 두면 조건만 바꿨을 때 이름이 조용히 옛 값으로 남는다.
+    조건마다 결과 폴더와 컬렉션이 달라지므로 그 사고는 두 실험을 섞어 버린다.
+    """
+    return f"{STRATEGY_BASE}_{max_tokens}_{overlap_tokens}_v2"
+
+
 CORPUS_ID = "advanced_v2"
 INPUT_SCHEMA_VERSION = "rfp_advanced_preprocessing_v1"
 DEFAULT_MODEL = "text-embedding-3-small"
 DEFAULT_ENCODING = "cl100k_base"
 DEFAULT_MAX_TOKENS = 512
+# 표는 512 상한 예외다. 같은 표가 여러 청크로 쪼개지지 않도록 하나의 청크로
+# 유지하되, text-embedding-3-small의 입력 상한(8,191 토큰)까지만 허용한다.
+# 이 상한을 넘는 극히 드문 표만 기존 행 단위 분할·헤더 반복 fallback을 쓴다.
+DEFAULT_TABLE_MAX_TOKENS = 8191
 DEFAULT_OVERLAP_TOKENS = 51
 DEFAULT_MIN_TAIL_TOKENS = DEFAULT_OVERLAP_TOKENS
+STRATEGY_ID = strategy_id_for(DEFAULT_MAX_TOKENS, DEFAULT_OVERLAP_TOKENS)
+# KSS(pecab)는 입력이 길어지면 제곱에 가깝게 느려진다. 그래서 스트림 전체를 한 번에
+# 넣지 않고 문단("\n\n") 경계에서 이 상한 이하로 나눠 호출한다. 문장은 빈 줄을 넘지
+# 않으므로 나눠 호출해도 문장 경계 결과는 같다.
+#
+# 같은 12,000자를 상한별로 처리한 실측 처리량:
+#   200자 1,166자/초 · 400자 569자/초 · 800자 227자/초 · 1,600자 80자/초
+# 400자를 고른 이유: 800자보다 2.5배 빠르면서, 문단 길이 p99(195자)의 두 배라
+# 대개 문단 2~3개를 함께 본다. 200자까지 낮추면 더 빠르지만 문단 하나가 곧
+# 세그먼트가 되어 문단 사이 문맥을 잃을 여지가 커진다.
+KSS_INPUT_MAX_CHARS = 400
 EXPECTED_KSS_VERSION = "6.0.6"
 EXPECTED_KIWI_VERSION = "0.23.2"
 INDEXABLE_POLICIES = frozenset({"index", "flatten"})
@@ -72,6 +99,17 @@ FORBIDDEN_IMAGE_PAYLOAD = re.compile(
     re.IGNORECASE,
 )
 HTML_TABLE_TAG = re.compile(r"</?(?:table|thead|tbody|tr|th|td)\b", re.IGNORECASE)
+# BM25 평문에서 걷어낼 내부 참조 표시. 전처리가 셀 안에 넣는 중첩 표 ID와 이미지
+# 참조는 사람이 읽을 구조 안내이지 검색어가 아니다. 그대로 두면 표 ID가
+# ['중첩','표','3','c','832','bf','48','d','677859','body','t','000003']처럼
+# 토큰으로 쪼개져 어휘 색인을 오염시킨다. Dense 본문(table_markdown)에는 구조
+# 정보로 남겨두고 BM25 입력에서만 제거한다.
+NESTED_TABLE_REFERENCE = re.compile(r"\[중첩 표:[^\]]*\]")
+IMAGE_REFERENCE = re.compile(r"!\[[^\]]*\]\(image://[^)]*\)")
+# 참조를 걷어내면 셀에 줄바꿈 치환 기호(``/``)나 구두점만 남을 수 있다. 그런 셀은
+# 검색어가 없으므로 평문에서 버린다. 남겨 두면 "평문은 있는데 토큰은 0개"인
+# 어정쩡한 상태가 되어 BM25 계약 검사와 어긋난다.
+SEPARATOR_ONLY = re.compile(r"^[\s/|·․‧∙⋅\-–—.,:;]+$")
 METADATA_PREFIX = re.compile(r"^\[문서\].*\n\[위치\].*\n\[유형\]", re.DOTALL)
 PAGE_MARKER_ATOM = re.compile(r"- *([1-9][0-9]{0,2}) *-")
 PAGE_MARKER_ONLY = re.compile(r"(?:- *[1-9][0-9]{0,2} *-)(?: *- *[1-9][0-9]{0,2} *-)*")
@@ -79,11 +117,15 @@ TEXT_LINE_SEPARATOR_TRANSLATION = str.maketrans(
     {char: " " for char in TEXT_LINE_SEPARATOR_CHARS}
 )
 
-# 팀 합의 코드를 그대로 재현한다. Kiwi 결과 중 조사(J*)와 어미(E*)만
-# 제외하며, 접사·감탄사·기호·사용자 정의 태그 등 나머지는 임의로 버리지 않는다.
-BM25_POS_POLICY_ID = "exclude_josa_eomi_prefix_v1"
-BM25_EXCLUDED_POS_PREFIXES = ("J", "E")
-BM25_TOKEN_NORMALIZATION = "strip_casefold"
+# 팀 회의 결정(2026-07-27): 품사로 걸러내지 않고 특수문자만 제거한다. 조사·어미도
+# 남기며, 형태소 표면형에서 문자·숫자가 아닌 기호만 떼어낸 뒤 빈 토큰을 버린다.
+# 이전 정책(exclude_josa_eomi_prefix_v1)은 과거 실행 재현용으로만 의미가 있다.
+BM25_POS_POLICY_ID = "strip_special_characters_v1"
+BM25_EXCLUDED_POS_PREFIXES: tuple[str, ...] = ()
+BM25_TOKEN_NORMALIZATION = "strip_special_casefold"
+# 문자(모든 언어)·숫자·밑줄과 하이픈만 남긴다. 하이픈은 `SFR-기타-002` 같은
+# 요구사항 번호에서 의미가 있어 보존한다.
+BM25_SPECIAL_CHARS = re.compile(r"[^\w\-]", re.UNICODE)
 
 BUSINESS_METADATA_FIELDS = (
     "source_row",
@@ -126,11 +168,27 @@ class AdvancedChunkConfig:
     """Advanced 512/51 실험을 재현하기 위한 설정이다."""
 
     max_tokens: int = DEFAULT_MAX_TOKENS
+    table_max_tokens: int = DEFAULT_TABLE_MAX_TOKENS
     overlap_tokens: int = DEFAULT_OVERLAP_TOKENS
     min_tail_tokens: int = DEFAULT_MIN_TAIL_TOKENS
     model_name: str = DEFAULT_MODEL
     encoding_name: str = DEFAULT_ENCODING
-    strategy_id: str = STRATEGY_ID
+    strategy_id: str = ""
+
+    def __post_init__(self) -> None:
+        """strategy_id를 비워 두면 토큰 조건에서 자동으로 만든다.
+
+        512/51을 이름에 문자열로 적어 두면 조건만 바꿨을 때 이름이 옛 값으로
+        남아 서로 다른 실험이 같은 strategy_id로 기록된다. 실행 스크립트는
+        이름을 비워 넘기므로 그 사고가 생기지 않는다. 이름을 직접 넘기는 쪽은
+        의도한 값을 쓰는 것으로 보고 그대로 존중한다.
+        """
+        if not self.strategy_id:
+            object.__setattr__(
+                self,
+                "strategy_id",
+                strategy_id_for(self.max_tokens, self.overlap_tokens),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +234,8 @@ class PackedTextChunk:
     overlap_actual_tokens: int
     overlap_sentence_count: int
     oversized_sentence_split: bool
+    # 온전한 문장 overlap이 불가능해 토큰 경계로 잘라 붙였는지 표시한다.
+    token_slice_overlap: bool = False
     sentence_fragment_index: int | None = None
     sentence_fragment_count: int | None = None
     sentence_token_start: int | None = None
@@ -281,6 +341,8 @@ def validate_advanced_config(config: AdvancedChunkConfig) -> None:
     """토큰 상한과 overlap이 앞으로 진행 가능한 값인지 확인한다."""
     if config.max_tokens <= 0:
         raise ValueError("max_tokens는 양수여야 합니다")
+    if config.table_max_tokens < config.max_tokens:
+        raise ValueError("table_max_tokens는 max_tokens 이상이어야 합니다")
     if not 0 <= config.overlap_tokens < config.max_tokens:
         raise ValueError("overlap_tokens는 0 이상이고 max_tokens보다 작아야 합니다")
     if not 0 <= config.min_tail_tokens <= config.max_tokens:
@@ -524,44 +586,86 @@ def _find_pdf_page_marker_blocks(
     return detected
 
 
+def section_scope_of(boundary_id: str) -> str:
+    """boundary ID에서 문단 번호를 떼어 section 범위만 남긴다.
+
+    HWP boundary는 ``…:section:0:paragraph:14`` 형태다. 문단을 묶은 stream의
+    청크는 stream 첫 블록의 boundary를 기록하므로, 청크와 블록을 대조할 때는
+    문단 번호가 아니라 section 범위로 비교해야 한다.
+    """
+    marker = ":paragraph:"
+    index = boundary_id.rfind(marker)
+    return boundary_id if index < 0 else boundary_id[:index]
+
+
+def _stream_group_key(block: Mapping[str, Any]) -> str:
+    """텍스트를 함께 묶을 결합 단위를 만든다.
+
+    PDF의 ``kss_boundary_id``는 이미 page 단위라 그대로 쓴다.
+
+    HWP/HWPX의 boundary는 paragraph 단위다. 문단마다 stream을 끊으면 512토큰을
+    채우지 못하고 짧은 청크가 대량으로 생기며 overlap도 만들어지지 않는다.
+    그렇다고 ``section_idx``로 묶으면 한글의 '구역'은 문서 하나에 보통 1개뿐이라
+    (실측 94개 중 63개) 문서 전체가 한 덩어리가 되어 장 경계를 잃는다.
+
+    그래서 ``section_path``(``Ⅰ. 추진개요`` 같은 논리적 장)를 결합 단위로 쓴다.
+    실측 기준 문서당 평균 8.3개 그룹이라 512를 여러 번 채우면서도 장 경계는
+    지킨다. ``section_path``가 없으면 section 번호로, 그것도 없으면 원래
+    boundary로 물러난다.
+    """
+    boundary = str(block.get("kss_boundary_id") or "")
+    if ":page:" in boundary:
+        return boundary
+
+    section_scope = section_scope_of(boundary)
+    section_path = str(block.get("section_path") or "").strip()
+    if not section_path:
+        return section_scope
+    return f"{section_scope}::path::{section_path}"
+
+
 def build_advanced_streams(
     document: Mapping[str, Any],
     blocks: Sequence[dict[str, Any]],
 ) -> list[AdvancedTextStream | dict[str, Any]]:
     """문서 순서를 유지하며 텍스트 stream과 독립 표 stream을 만든다.
 
-    PDF는 같은 page라도 표·이미지가 끼면 stream을 끊는다. 이렇게 해야 표
-    앞뒤 문장이 KSS 입력에서 인위적으로 붙지 않으면서 page 경계도 지킨다.
-    HWP/HWPX도 같은 paragraph ID 안의 연속 텍스트만 합친다.
+    결합 단위는 PDF는 page, HWP/HWPX는 section이다(``_stream_group_key``).
+    표·이미지는 텍스트 결합을 끊지 않는다. 표 사이에 낀 제목 한 줄이 3토큰짜리
+    청크로 떨어져 나오는 문제가 있었고, 표 본문은 어차피 독립 stream으로 따로
+    색인되므로 앞뒤 문단을 잇는 편이 검색에 유리하다.
+
+    표 stream이 텍스트 stream 중간에 생길 수 있어, 번호는 모두 모은 뒤 각
+    stream의 첫 블록 순서로 정렬해서 부여한다.
     """
     source_id = str(document["source_id"])
-    streams: list[AdvancedTextStream | dict[str, Any]] = []
+    collected: list[tuple[int, int, dict[str, Any]]] = []
     current_blocks: list[dict[str, Any]] = []
-    current_boundary: str | None = None
-    stream_order = 0
+    current_group: str | None = None
     page_marker_blocks = _find_pdf_page_marker_blocks(document, blocks)
 
     def flush_text() -> None:
-        """모아 둔 연속 텍스트를 AdvancedTextStream 하나로 확정한다."""
-        nonlocal current_blocks, current_boundary, stream_order
+        """모아 둔 연속 텍스트를 하나의 텍스트 stream 후보로 확정한다."""
+        nonlocal current_blocks, current_group
         if not current_blocks:
             return
-        stream_order += 1
         text, block_spans = _join_text_blocks(current_blocks)
         anchor = current_blocks[0]
-        streams.append(
-            AdvancedTextStream(
-                stream_id=f"{source_id}:AS{stream_order:06d}",
-                stream_order=stream_order,
-                boundary_type=str(anchor["kss_boundary_type"]),
-                boundary_id=str(anchor["kss_boundary_id"]),
-                blocks=tuple(current_blocks),
-                text=text,
-                block_char_spans=block_spans,
+        collected.append(
+            (
+                int(anchor["block_order"]),
+                0,
+                {
+                    "kind": "text",
+                    "anchor": anchor,
+                    "blocks": tuple(current_blocks),
+                    "text": text,
+                    "spans": block_spans,
+                },
             )
         )
         current_blocks = []
-        current_boundary = None
+        current_group = None
 
     for block in sorted(blocks, key=lambda item: int(item["block_order"])):
         if str(block.get("source_id")) != source_id:
@@ -574,27 +678,47 @@ def build_advanced_streams(
             flush_text()
             continue
         if _is_advanced_text(block):
-            boundary = str(block.get("kss_boundary_id") or "")
-            if not boundary:
+            if not str(block.get("kss_boundary_id") or ""):
                 raise ValueError(
                     f"KSS 대상에 boundary ID가 없습니다: {block['block_id']}"
                 )
-            if current_blocks and boundary != current_boundary:
+            group = _stream_group_key(block)
+            if current_blocks and group != current_group:
                 flush_text()
-            current_boundary = boundary
+            current_group = group
             current_blocks.append(block)
             continue
 
-        # 표·이미지·제외 블록은 문장 결합을 끊는다. 색인 대상 표만 독립
-        # stream으로 남기고, 이미지 및 exclude 블록은 청크를 만들지 않는다.
-        flush_text()
+        # 색인 대상 표만 독립 stream으로 남긴다. 이미지와 exclude 블록은 청크를
+        # 만들지 않으며, 어느 쪽도 텍스트 결합을 끊지 않는다.
         if _is_advanced_table(block):
-            stream_order += 1
-            table_stream = dict(block)
-            table_stream["stream_id"] = f"{source_id}:AS{stream_order:06d}"
-            table_stream["stream_order"] = stream_order
-            streams.append(table_stream)
+            collected.append(
+                (int(block["block_order"]), 1, {"kind": "table", "block": block})
+            )
     flush_text()
+
+    collected.sort(key=lambda item: (item[0], item[1]))
+    streams: list[AdvancedTextStream | dict[str, Any]] = []
+    for stream_order, (_, _, payload) in enumerate(collected, start=1):
+        stream_id = f"{source_id}:AS{stream_order:06d}"
+        if payload["kind"] == "text":
+            anchor = payload["anchor"]
+            streams.append(
+                AdvancedTextStream(
+                    stream_id=stream_id,
+                    stream_order=stream_order,
+                    boundary_type=str(anchor["kss_boundary_type"]),
+                    boundary_id=str(anchor["kss_boundary_id"]),
+                    blocks=payload["blocks"],
+                    text=payload["text"],
+                    block_char_spans=payload["spans"],
+                )
+            )
+            continue
+        table_stream = dict(payload["block"])
+        table_stream["stream_id"] = stream_id
+        table_stream["stream_order"] = stream_order
+        streams.append(table_stream)
     return streams
 
 
@@ -691,6 +815,63 @@ def _split_oversized_sentence(
             )
         )
     return chunks
+
+
+def _sentence_index_at(
+    sentences: Sequence[SentenceSpan],
+    fallback_index: int,
+    char_offset: int,
+) -> int:
+    """char offset이 속한 문장의 sentence_index를 찾는다.
+
+    토큰 단위 overlap은 청크를 문장 중간에서 시작시키므로, 청크가 실제로 걸치는
+    첫 문장을 metadata에 남겨야 sentence_count가 사실과 맞는다.
+    """
+    for span in sentences:
+        if span.char_start <= char_offset < span.char_end:
+            return span.sentence_index
+    return sentences[fallback_index].sentence_index
+
+
+def _token_slice_overlap_start(
+    budget_text: str,
+    chunk_char_start: int,
+    chunk_char_end: int,
+    codec: TokenCodec,
+    config: AdvancedChunkConfig,
+) -> tuple[int, int] | None:
+    """온전한 문장 overlap이 안 될 때 토큰 경계로 자른 overlap 시작점을 찾는다.
+
+    RFP는 개조식(``□``·``◦``·``-``)이라 KSS가 나눈 한 문장이 중앙값 96토큰,
+    평균 131토큰이다. overlap 예산 51토큰(512의 10%)으로는 문장 하나도 담을 수
+    없어, 실측 기준 경계의 94.5%에서 온전한 문장 overlap이 실패했다. 그 결과
+    연속 청크 4,347쌍 중 3,100쌍(71.3%)에 overlap이 없었다.
+
+    그런 경계에서는 문장 온전성을 포기하고 UTF-8 안전한 토큰 경계에서 잘라
+    팀 기준인 10% overlap을 지킨다. 문장 경계를 맞출 수 있으면 그쪽을 먼저
+    쓰므로(``_whole_sentence_overlap_start``) 이 함수는 차선책이다.
+
+    반환값은 ``(overlap 시작 char offset, overlap 토큰 수)``이며, 예산에 맞는
+    안전한 경계가 없거나 앞으로 진행하지 못하면 ``None``이다.
+    """
+    if config.overlap_tokens <= 0 or chunk_char_end <= chunk_char_start:
+        return None
+    chunk_budget = budget_text[chunk_char_start:chunk_char_end]
+    token_map = TokenTextMap(chunk_budget, codec)
+    total = len(token_map)
+    # 청크 전체가 예산보다 작으면 다음 청크가 앞 청크를 통째로 품어 새 내용이
+    # 없는 중복 청크가 된다. 그런 경계는 overlap 없이 넘어간다.
+    if total <= config.overlap_tokens:
+        return None
+    # 오름차순에서 예산을 처음 만족하는 인덱스가 예산 안 최대 overlap이다.
+    for index in token_map.safe_token_indices:
+        if index <= 0 or index >= total:
+            continue
+        if total - index <= config.overlap_tokens:
+            local_char = token_map.token_to_char[index]
+            if 0 < local_char < len(chunk_budget):
+                return chunk_char_start + local_char, total - index
+    return None
 
 
 def _whole_sentence_overlap_start(
@@ -921,6 +1102,9 @@ def pack_sentence_spans(
     start_index = 0
     pending_overlap_tokens = 0
     pending_overlap_sentences = 0
+    # 온전한 문장 overlap이 불가능한 경계에서 앞 청크 꼬리를 토큰 단위로 잘라
+    # 붙일 시작 offset이다. None이면 문장 경계에서 그대로 시작한다.
+    pending_overlap_char_start: int | None = None
 
     while start_index < len(selected_sentences):
         first = selected_sentences[start_index]
@@ -936,37 +1120,48 @@ def pack_sentence_spans(
             start_index += 1
             pending_overlap_tokens = 0
             pending_overlap_sentences = 0
+            pending_overlap_char_start = None
             continue
 
+        chunk_char_start = (
+            first.char_start
+            if pending_overlap_char_start is None
+            else pending_overlap_char_start
+        )
         end_index = start_index
         while end_index < len(selected_sentences):
             candidate = selected_budget_text[
-                selected_sentences[start_index].char_start : selected_sentences[
-                    end_index
-                ].char_end
+                chunk_char_start : selected_sentences[end_index].char_end
             ]
             if len(codec.encode(candidate)) > selected_config.max_tokens:
                 break
             end_index += 1
         if end_index == start_index:
+            if pending_overlap_char_start is not None:
+                # overlap 꼬리까지 붙이면 문장 하나도 상한에 못 들어간다.
+                # overlap을 포기하고 문장 경계에서 다시 시작한다.
+                pending_overlap_char_start = None
+                pending_overlap_tokens = 0
+                pending_overlap_sentences = 0
+                continue
             raise ValueError("문장 하나를 토큰 상한 안에 넣지 못했습니다")
 
-        raw_text = selected_text[
-            selected_sentences[start_index].char_start : selected_sentences[
-                end_index - 1
-            ].char_end
-        ]
+        chunk_char_end = selected_sentences[end_index - 1].char_end
+        raw_text = selected_text[chunk_char_start:chunk_char_end]
         packed.append(
             PackedTextChunk(
                 text=raw_text,
-                char_start=selected_sentences[start_index].char_start,
-                char_end=selected_sentences[end_index - 1].char_end,
-                sentence_start=selected_sentences[start_index].sentence_index,
+                char_start=chunk_char_start,
+                char_end=chunk_char_end,
+                sentence_start=_sentence_index_at(
+                    selected_sentences, start_index, chunk_char_start
+                ),
                 sentence_end=selected_sentences[end_index - 1].sentence_index,
                 overlap_target_tokens=selected_config.overlap_tokens,
                 overlap_actual_tokens=pending_overlap_tokens,
                 overlap_sentence_count=pending_overlap_sentences,
                 oversized_sentence_split=False,
+                token_slice_overlap=pending_overlap_char_start is not None,
             )
         )
         if end_index >= len(selected_sentences):
@@ -986,11 +1181,12 @@ def pack_sentence_spans(
             start_index = end_index
             pending_overlap_tokens = 0
             pending_overlap_sentences = 0
+            pending_overlap_char_start = None
             continue
         (
             next_start,
-            pending_overlap_tokens,
-            pending_overlap_sentences,
+            whole_sentence_tokens,
+            whole_sentence_count,
         ) = _whole_sentence_overlap_start(
             selected_budget_text,
             selected_sentences,
@@ -1000,7 +1196,30 @@ def pack_sentence_spans(
             codec,
             selected_config,
         )
-        start_index = next_start
+        if whole_sentence_tokens > 0:
+            # 문장 경계로 예산을 채울 수 있으면 그쪽을 쓴다.
+            pending_overlap_char_start = None
+            pending_overlap_tokens = whole_sentence_tokens
+            pending_overlap_sentences = whole_sentence_count
+            start_index = next_start
+            continue
+        # 개조식 문장이 예산보다 길어 온전한 문장으로는 overlap을 못 만든다.
+        # 토큰 경계로 잘라 팀 기준 10% overlap을 지킨다.
+        token_overlap = _token_slice_overlap_start(
+            selected_budget_text,
+            chunk_char_start,
+            chunk_char_end,
+            codec,
+            selected_config,
+        )
+        if token_overlap is None:
+            pending_overlap_char_start = None
+            pending_overlap_tokens = 0
+            pending_overlap_sentences = 0
+        else:
+            pending_overlap_char_start, pending_overlap_tokens = token_overlap
+            pending_overlap_sentences = 0
+        start_index = end_index
     return _repair_short_final_chunk(
         packed,
         selected_text,
@@ -1061,7 +1280,11 @@ def inherited_advanced_metadata(document: Mapping[str, Any]) -> dict[str, Any]:
 def _tokenize_bm25(
     tokenizer: Bm25Tokenizer | Callable[[str], Sequence[Any]], text: str
 ) -> list[str]:
-    """Kiwi 결과에서 팀 합의대로 조사(J*)와 어미(E*)만 제외한다."""
+    """Kiwi 형태소에서 특수문자만 제거한다.
+
+    팀 회의 결정에 따라 품사로는 걸러내지 않는다. 조사·어미도 남기고, 표면형에서
+    문자·숫자·하이픈이 아닌 기호만 떼어낸 뒤 빈 토큰만 버린다.
+    """
     if hasattr(tokenizer, "tokenize"):
         values = tokenizer.tokenize(text)  # type: ignore[union-attr]
     elif callable(tokenizer):
@@ -1070,17 +1293,47 @@ def _tokenize_bm25(
         raise TypeError("Kiwi tokenizer는 tokenize 메서드 또는 callable이어야 합니다")
     tokens: list[str] = []
     for value in values:
-        if isinstance(value, str):
-            form = value
-            keep = True
-        else:
-            form = str(getattr(value, "form", ""))
-            tag = str(getattr(value, "tag", ""))
-            keep = not tag.startswith(BM25_EXCLUDED_POS_PREFIXES)
-        normalized = form.strip().casefold()
-        if keep and normalized:
+        form = value if isinstance(value, str) else str(getattr(value, "form", ""))
+        normalized = BM25_SPECIAL_CHARS.sub("", form).strip("-").strip().casefold()
+        if normalized:
             tokens.append(normalized)
     return tokens
+
+
+def table_markdown_to_plain_text(markdown: str) -> str:
+    """표 Markdown에서 BM25용 평문을 만든다.
+
+    팀 회의 결정(2026-07-27)으로 표도 BM25 대상이 됐다. Dense 본문은 구조가 보이는
+    Markdown을 그대로 쓰고, 어휘 검색용으로는 파이프와 구분선을 걷어낸 평문을 같은
+    청크의 별도 필드에 둔다. 셀 값 사이는 공백으로 이어 붙인다.
+
+    중첩 표 ID와 이미지 참조는 내부 식별자라 검색어가 아니므로 함께 제거한다.
+    실측(표 12,428개): 중첩 표 참조 554개, 이미지 참조 88개에서 ID가 토큰으로
+    쪼개져 약 27,000개의 무의미한 토큰이 들어가고 있었다.
+    """
+    markdown = NESTED_TABLE_REFERENCE.sub(" ", markdown)
+    markdown = IMAGE_REFERENCE.sub(" ", markdown)
+    lines: list[str] = []
+    for raw_line in markdown.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if not line.startswith("|"):
+            # 캡션·중첩 표 제목처럼 표 밖의 줄도 검색 대상에 포함한다.
+            if not SEPARATOR_ONLY.match(line):
+                lines.append(line)
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if all(not cell or set(cell) <= set("-: ") for cell in cells):
+            continue  # 구분선
+        values = [
+            cell.replace("\\|", "|")
+            for cell in cells
+            if cell and not SEPARATOR_ONLY.match(cell)
+        ]
+        if values:
+            lines.append(" ".join(values))
+    return normalize_text_for_embedding("\n".join(lines)).strip()
 
 
 def _quality_flags(
@@ -1121,6 +1374,7 @@ def build_advanced_chunk_record(
     boundary_id: str | None = None,
     sentence_fields: Mapping[str, Any] | None = None,
     table_fields: Mapping[str, Any] | None = None,
+    table_plain_text: str | None = None,
     extra_quality_flags: Iterable[str] = (),
 ) -> dict[str, Any]:
     """일반 텍스트와 표가 공유하는 prefix 없는 JSON 청크를 만든다."""
@@ -1132,9 +1386,15 @@ def build_advanced_chunk_record(
         raise ValueError("청크에 이미지 payload 또는 Base64가 포함됐습니다")
     selected_raw_text = embedding_text if raw_text is None else raw_text
     token_count = len(codec.encode(embedding_text))
-    if token_count > config.max_tokens:
+    # 표는 같은 표를 여러 청크로 쪼개지 않도록 512 상한 예외를 받는다.
+    # 임베딩 모델 입력 상한(config.table_max_tokens)까지만 허용한다.
+    applicable_max_tokens = (
+        config.table_max_tokens if content_type == "table" else config.max_tokens
+    )
+    if token_count > applicable_max_tokens:
         raise ValueError(
-            f"Advanced 청크가 토큰 상한을 넘었습니다: {token_count} > {config.max_tokens}"
+            "Advanced 청크가 토큰 상한을 넘었습니다: "
+            f"{token_count} > {applicable_max_tokens}"
         )
     is_text = content_type == "text"
     if is_text and kiwi_tokenizer is None:
@@ -1143,10 +1403,23 @@ def build_advanced_chunk_record(
         raise ValueError(
             "일반 텍스트 embedding_text에 줄바꿈이 남았거나 raw_text 정규화와 다릅니다"
         )
+    # BM25 입력: 일반 텍스트는 embedding_text, 표는 같은 청크의 평문 필드를 쓴다.
+    # Dense 본문은 구조가 보이는 Markdown 그대로 두고 어휘 검색만 평문으로 한다.
+    if is_text:
+        bm25_input: str | None = embedding_text
+    elif content_type == "table" and table_plain_text:
+        bm25_input = table_plain_text
+    else:
+        bm25_input = None
+    # 토크나이저가 없으면(구조만 재현하는 호출) 평문은 남기고 BM25는 끈다.
+    bm25_enabled = bm25_input is not None and kiwi_tokenizer is not None
     bm25_tokens = (
-        _tokenize_bm25(kiwi_tokenizer, embedding_text)
-        if is_text and kiwi_tokenizer is not None
+        _tokenize_bm25(kiwi_tokenizer, bm25_input)
+        if bm25_enabled and kiwi_tokenizer is not None and bm25_input is not None
         else []
+    )
+    bm25_source_field = (
+        ("embedding_text" if is_text else "table_plain_text") if bm25_enabled else None
     )
     section_start, section_end = _range(source_blocks, "section_idx")
     para_start, para_end = _range(source_blocks, "para_idx")
@@ -1158,7 +1431,7 @@ def build_advanced_chunk_record(
         "chunk_id": None,
         "chunk_order": None,
         "strategy_id": config.strategy_id,
-        "chunk_size_tokens": config.max_tokens,
+        "chunk_size_tokens": applicable_max_tokens,
         "chunk_overlap_target_tokens": config.overlap_tokens,
         "min_tail_tokens": config.min_tail_tokens,
         "overlap_actual_tokens": overlap_actual_tokens,
@@ -1198,17 +1471,19 @@ def build_advanced_chunk_record(
         "kss_applied": is_text,
         "kss_boundary_type": boundary_type,
         "kss_boundary_id": boundary_id,
-        "bm25_eligible": is_text,
-        "bm25_tokenizer": "kiwipiepy" if is_text else None,
-        "bm25_tokenizer_version": EXPECTED_KIWI_VERSION if is_text else None,
-        "bm25_pos_policy": BM25_POS_POLICY_ID if is_text else None,
+        "bm25_eligible": bm25_enabled,
+        "bm25_tokenizer": "kiwipiepy" if bm25_enabled else None,
+        "bm25_tokenizer_version": EXPECTED_KIWI_VERSION if bm25_enabled else None,
+        "bm25_pos_policy": BM25_POS_POLICY_ID if bm25_enabled else None,
         "bm25_excluded_pos_prefixes": (
-            list(BM25_EXCLUDED_POS_PREFIXES) if is_text else []
+            list(BM25_EXCLUDED_POS_PREFIXES) if bm25_enabled else []
         ),
-        "bm25_token_normalization": BM25_TOKEN_NORMALIZATION if is_text else None,
-        "bm25_source_field": "embedding_text" if is_text else None,
+        "bm25_token_normalization": BM25_TOKEN_NORMALIZATION if bm25_enabled else None,
+        "bm25_source_field": bm25_source_field,
         "bm25_tokens": bm25_tokens,
         "bm25_token_count": len(bm25_tokens),
+        # 표의 BM25 입력 평문. Dense 본문(Markdown)과 별도로 같은 청크에 둔다.
+        "table_plain_text": table_plain_text,
         "section_path": source_blocks[0].get("section_path") or "본문",
         "section_idx_start": section_start,
         "section_idx_end": section_end,
@@ -1242,14 +1517,50 @@ def build_advanced_chunk_record(
     return record
 
 
+def split_kss_input_at_paragraphs(text: str, limit: int) -> list[str]:
+    """KSS 입력을 문단 경계에서 ``limit`` 이하 조각으로 나눈다.
+
+    ``_join_text_blocks``가 문단을 ``\n\n``으로 이었으므로 그 경계에서만 자른다.
+    문장이 빈 줄을 넘지 않기 때문에 나눠 호출해도 문장 경계가 달라지지 않는다.
+    한 문단이 혼자 ``limit``을 넘으면 쪼개지 않고 그대로 둔다(정확성 우선).
+    """
+    if len(text) <= limit:
+        return [text]
+    separator = "\n\n"
+    segments: list[str] = []
+    current = ""
+    for paragraph in text.split(separator):
+        candidate = paragraph if not current else current + separator + paragraph
+        if current and len(candidate) > limit:
+            segments.append(current)
+            current = paragraph
+            continue
+        current = candidate
+    if current:
+        segments.append(current)
+    return segments
+
+
 def _call_sentence_splitter(
     splitter: SentenceSplitter | Callable[[str], Sequence[str]],
     text: str,
+    *,
+    input_limit: int = KSS_INPUT_MAX_CHARS,
 ) -> Sequence[str]:
-    """주입한 KSS wrapper 또는 callable을 한 경계에 한 번 호출한다."""
-    if callable(splitter):
-        return splitter(text)
-    raise TypeError("sentence_splitter는 callable이어야 합니다")
+    """KSS를 문단 경계 조각으로 나눠 호출하고 문장을 순서대로 이어 붙인다.
+
+    조각으로 나누는 이유는 성능이다. pecab이 긴 입력에서 제곱에 가깝게 느려져
+    스트림 전체를 한 번에 넣으면 전체 청킹이 10시간을 넘긴다.
+    """
+    if not callable(splitter):
+        raise TypeError("sentence_splitter는 callable이어야 합니다")
+    segments = split_kss_input_at_paragraphs(text, input_limit)
+    if len(segments) == 1:
+        return splitter(segments[0])
+    sentences: list[str] = []
+    for segment in segments:
+        sentences.extend(splitter(segment))
+    return sentences
 
 
 def chunk_advanced_text_stream(
@@ -1317,6 +1628,8 @@ def chunk_advanced_text_stream(
             extra_flags.append("short_final_text_chunk_adjusted")
         if part.short_tail_token_overlap_fallback:
             extra_flags.append("short_tail_token_overlap_fallback")
+        if part.token_slice_overlap:
+            extra_flags.append("token_slice_overlap_fallback")
         if part.short_tail_adjustment_mode == "merged_with_previous":
             extra_flags.append("short_tail_merged_with_previous")
         new_char_start = max(covered_char_end, part.char_start)
@@ -1351,6 +1664,7 @@ def chunk_advanced_text_stream(
                     "sentence_end": part.sentence_end,
                     "sentence_count": part.sentence_end - part.sentence_start + 1,
                     "oversized_sentence_split": part.oversized_sentence_split,
+                    "token_slice_overlap": part.token_slice_overlap,
                     "sentence_fragment_index": part.sentence_fragment_index,
                     "sentence_fragment_count": part.sentence_fragment_count,
                     "sentence_token_start": part.sentence_token_start,
@@ -1426,7 +1740,7 @@ def _fallback_table_segment_parts(
             source_text,
             _one_cell_table,
             codec,
-            config.max_tokens,
+            config.table_max_tokens,
         )
     ]
 
@@ -1441,7 +1755,7 @@ def _chunk_table_segment_texts(
     source_text = "\n".join(
         [*segment.context_lines, *segment.header_lines, *segment.data_rows]
     )
-    if len(codec.encode(header)) > config.max_tokens:
+    if len(codec.encode(header)) > config.table_max_tokens:
         return [
             {
                 "text": text,
@@ -1463,7 +1777,7 @@ def _chunk_table_segment_texts(
     # 문자열 모양으로 추정하면 escape된 ``|`` 때문에 오판할 수 있다.
     rows: list[tuple[int, str, bool]] = []
     for row_number, row in enumerate(segment.data_rows, start=1):
-        if len(codec.encode(f"{header}\n{row}")) <= config.max_tokens:
+        if len(codec.encode(f"{header}\n{row}")) <= config.table_max_tokens:
             rows.append((row_number, row, False))
             continue
 
@@ -1479,7 +1793,7 @@ def _chunk_table_segment_texts(
                 row,
                 render,
                 codec,
-                config.max_tokens,
+                config.table_max_tokens,
             )
         except ValueError:
             return [
@@ -1527,12 +1841,12 @@ def _chunk_table_segment_texts(
             candidate = "\n".join(
                 [header, *(row for _, row, _ in [*selected, rows[cursor]])]
             )
-            if len(codec.encode(candidate)) > config.max_tokens:
+            if len(codec.encode(candidate)) > config.table_max_tokens:
                 break
             selected.append(rows[cursor])
             cursor += 1
         if not selected:
-            raise ValueError("표 행을 512토큰 예산 안에 넣지 못했습니다")
+            raise ValueError("표 행을 table_max_tokens 예산 안에 넣지 못했습니다")
         row_numbers = [row_number for row_number, _, _ in selected]
         oversized = any(is_oversized for _, _, is_oversized in selected)
         parts.append(
@@ -1553,8 +1867,14 @@ def chunk_advanced_table_block(
     block: dict[str, Any],
     codec: TokenCodec,
     config: AdvancedChunkConfig,
+    kiwi_tokenizer: Bm25Tokenizer | Callable[[str], Sequence[Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """표 Markdown만 행 단위로 나누고 KSS·Kiwi는 호출하지 않는다."""
+    """표 Markdown을 행 단위로 나눈다. KSS는 쓰지 않고 BM25 평문만 만든다.
+
+    Dense 본문은 구조가 보이는 Markdown이고, BM25 입력은 같은 청크의
+    ``table_plain_text``다. ``kiwi_tokenizer``가 없으면 평문만 남기고 토큰은
+    비운다(검증기가 토크나이저 없이 표 청크 구조만 재현할 때 쓴다).
+    """
     if not _is_advanced_table(block):
         raise ValueError(f"Advanced Dense 표 계약이 아닙니다: {block.get('block_id')}")
     markdown = str(block["table_markdown"])
@@ -1576,6 +1896,20 @@ def chunk_advanced_table_block(
         for part_index, part in enumerate(parts, start=1):
             segment_parts.append((segment, part, part_index, len(parts)))
 
+    # 참조를 metadata로 옮긴 뒤 셀이 전부 비는 세그먼트가 생긴다. 배치용 부모
+    # 격자가 그런 경우다(실측 43개). 검색어가 하나도 없으므로 청크로 만들지
+    # 않는다. 실제 내용은 같은 블록의 다른 세그먼트에 그대로 있다.
+    #
+    # 전부 비어 있으면 블록이 청크 0개가 되어 커버리지 게이트가 깨지므로 그때는
+    # 원래 목록을 그대로 쓴다.
+    with_content = [
+        item
+        for item in segment_parts
+        if table_markdown_to_plain_text(str(item[1]["text"])).strip()
+    ]
+    if with_content:
+        segment_parts = with_content
+
     chunks: list[dict[str, Any]] = []
     for table_part_index, (
         segment,
@@ -1594,9 +1928,25 @@ def chunk_advanced_table_block(
                 stream_part_index=table_part_index,
                 codec=codec,
                 config=config,
-                kiwi_tokenizer=None,
+                kiwi_tokenizer=kiwi_tokenizer,
+                table_plain_text=table_markdown_to_plain_text(str(part["text"])),
                 table_fields={
                     "table_id": block["table_id"],
+                    # 팀 회의 결정(2026-07-27): 답변 근거로 원본 표 구조를 보여줄 수
+                    # 있게 rowspan/colspan이 살아 있는 HTML을 청크에 함께 싣는다.
+                    # 표가 나뉘어도 각 part가 같은 원본 표 HTML을 가리킨다.
+                    "table_html": str(block.get("table_html") or ""),
+                    # 팀 회의 결정(2026-07-28): 중첩 표·이미지 참조는 임베딩
+                    # 본문에 넣지 않고 여기에만 남긴다. Chroma metadata는 스칼라만
+                    # 받으므로 공백으로 이어 붙인 문자열도 함께 싣는다.
+                    "nested_table_refs": list(block.get("nested_table_refs") or []),
+                    "image_refs": list(block.get("image_refs") or []),
+                    "nested_table_ref_ids": " ".join(
+                        str(value) for value in (block.get("nested_table_refs") or [])
+                    ),
+                    "image_ref_ids": " ".join(
+                        str(value) for value in (block.get("image_refs") or [])
+                    ),
                     "render_mode": "gfm",
                     "table_part_index": table_part_index,
                     "table_part_count": len(segment_parts),
@@ -1690,6 +2040,7 @@ def build_advanced_chunk_corpus(
                         stream,
                         selected_codec,
                         selected_config,
+                        selected_kiwi,
                     )
                 )
         for order, chunk in enumerate(document_chunks, start=1):
@@ -1871,7 +2222,13 @@ def validate_advanced_chunks(
         raw_text_matches_source_stream(chunk) for chunk in chunks
     )
     token_counts_valid = all(
-        1 <= int(chunk["token_count"]) <= config.max_tokens
+        1
+        <= int(chunk["token_count"])
+        <= (
+            config.table_max_tokens
+            if chunk.get("content_type") == "table"
+            else config.max_tokens
+        )
         and int(chunk["token_count"]) == len(codec.encode(chunk["embedding_text"]))
         for chunk in chunks
     )
@@ -1934,20 +2291,49 @@ def validate_advanced_chunks(
             locations_valid &= chunk.get("page_start") is None
             locations_valid &= chunk.get("page_end") is None
             if chunk["content_type"] == "text":
-                boundary_ids = {block.get("kss_boundary_id") for block in source_blocks}
-                locations_valid &= len(boundary_ids) == 1
-                locations_valid &= chunk.get("kss_boundary_id") in boundary_ids
+                # 문단은 넘어도 section_path(논리적 장) 경계는 넘지 않는다.
+                group_keys = {_stream_group_key(block) for block in source_blocks}
+                locations_valid &= len(group_keys) == 1
+                # 청크의 boundary는 stream 첫 블록 것이므로 문단 번호가 그 청크의
+                # 블록과 다를 수 있다. 그래서 section 범위로 대조한다.
+                scopes = {
+                    section_scope_of(str(block.get("kss_boundary_id") or ""))
+                    for block in source_blocks
+                }
+                chunk_scope = section_scope_of(str(chunk.get("kss_boundary_id") or ""))
+                locations_valid &= chunk_scope in scopes
 
         if chunk["content_type"] == "table":
+            # 표는 KSS를 쓰지 않는다. BM25는 평문이 있을 때만 대상이 된다.
             table_contract_valid &= chunk.get("kss_applied") is False
-            table_contract_valid &= chunk.get("bm25_eligible") is False
-            table_contract_valid &= chunk.get("bm25_tokens") == []
-            table_contract_valid &= chunk.get("bm25_pos_policy") is None
-            table_contract_valid &= chunk.get("bm25_excluded_pos_prefixes") == []
-            table_contract_valid &= chunk.get("bm25_token_normalization") is None
-            table_contract_valid &= chunk.get("bm25_source_field") is None
+            plain_text = chunk.get("table_plain_text")
+            table_contract_valid &= isinstance(plain_text, str)
+            table_contract_valid &= plain_text == table_markdown_to_plain_text(
+                str(chunk["embedding_text"])
+            )
+            if plain_text:
+                table_contract_valid &= (
+                    chunk.get("bm25_source_field") == "table_plain_text"
+                )
+            else:
+                # 내용이 중첩 표·이미지 참조뿐이면 평문이 빈다. Dense만 색인한다.
+                table_contract_valid &= chunk.get("bm25_source_field") is None
+                table_contract_valid &= chunk.get("bm25_eligible") is False
+                table_contract_valid &= not chunk.get("bm25_tokens")
             table_contract_valid &= chunk.get("table_id") == source_blocks[0].get(
                 "table_id"
+            )
+            if plain_text:
+                table_contract_valid &= chunk.get("bm25_eligible") is True
+                table_contract_valid &= (
+                    chunk.get("bm25_pos_policy") == BM25_POS_POLICY_ID
+                )
+                table_contract_valid &= (
+                    chunk.get("bm25_token_normalization") == BM25_TOKEN_NORMALIZATION
+                )
+            table_contract_valid &= isinstance(chunk.get("bm25_tokens"), list)
+            table_contract_valid &= chunk.get("bm25_token_count") == len(
+                chunk.get("bm25_tokens") or []
             )
             table_contract_valid &= not HTML_TABLE_TAG.search(chunk["embedding_text"])
             table_contract_valid &= bool(
@@ -2154,11 +2540,26 @@ def validate_advanced_chunks(
                 key=lambda row: int(row.get("stream_part_index") or 0),
             )
             stream_valid &= len(ordered_actual) == len(expected_chunks)
+            # 검증기에는 Kiwi가 없어 표 BM25 토큰을 재현할 수 없다. 토큰 계약은
+            # 아래 bm25 블록이 따로 검사하므로 여기서는 구조·본문만 대조한다.
+            skipped_fields = {
+                "chunk_id",
+                "chunk_order",
+                "bm25_tokens",
+                "bm25_token_count",
+                "bm25_eligible",
+                "bm25_tokenizer",
+                "bm25_tokenizer_version",
+                "bm25_pos_policy",
+                "bm25_excluded_pos_prefixes",
+                "bm25_token_normalization",
+                "bm25_source_field",
+            }
             for actual, expected in zip(ordered_actual, expected_chunks):
                 stream_valid &= all(
                     actual.get(field) == value
                     for field, value in expected.items()
-                    if field not in {"chunk_id", "chunk_order"}
+                    if field not in skipped_fields
                 )
         table_source_contract_valid &= stream_valid
         if not stream_valid:
@@ -2181,13 +2582,13 @@ def validate_advanced_chunks(
         "text_raw_matches_source_stream_span": raw_text_source_valid,
         "text_streams_are_contiguously_covered": bool(text_stream_coverage_valid),
         "table_chunks_match_source_markdown": bool(table_source_contract_valid),
-        "token_counts_and_512_limit_are_valid": token_counts_valid,
+        "token_counts_are_within_per_type_limits": token_counts_valid,
         "text_newlines_are_excluded_from_embedding_only": bool(
             embedding_text_contract_valid
         ),
-        "pdf_page_and_hwp_paragraph_boundaries_are_preserved": bool(locations_valid),
-        "tables_use_markdown_without_kss_or_bm25": bool(table_contract_valid),
-        "text_only_has_kiwi_bm25_tokens": bool(bm25_contract_valid),
+        "pdf_page_and_hwp_section_boundaries_are_preserved": bool(locations_valid),
+        "tables_use_markdown_with_plain_text_bm25": bool(table_contract_valid),
+        "text_bm25_tokens_follow_policy": bool(bm25_contract_valid),
         "kss_sanitization_metadata_is_consistent": bool(kss_metadata_valid),
         "tail_adjustment_metadata_is_consistent": bool(tail_metadata_valid),
         "short_final_text_chunks_are_adjusted": bool(short_tail_contract_valid),
@@ -2313,26 +2714,31 @@ def build_advanced_summary(
         "corpus_id": CORPUS_ID,
         "strategy_id": config.strategy_id,
         "max_tokens": config.max_tokens,
+        "table_max_tokens": config.table_max_tokens,
         "overlap_target_tokens": config.overlap_tokens,
         "min_tail_tokens": config.min_tail_tokens,
-        "overlap_policy": "largest_whole_sentence_suffix_at_or_below_target",
+        "overlap_policy": (
+            "largest_whole_sentence_suffix_then_safe_token_slice_at_or_below_target"
+        ),
         "short_tail_policy": ("merge_then_rebalance_then_safe_overlap_by_new_content"),
         "page_marker_policy": "always_metadata_only_never_in_embedding_text",
         "page_marker_detector_id": PAGE_MARKER_DETECTOR_ID,
         "table_overlap_policy": "header_repeat_only",
+        "text_stream_grouping": "pdf_page_or_hwp_section_path_across_tables",
         "embedding_text_field": "embedding_text",
         "text_embedding_normalization": TEXT_EMBEDDING_NORMALIZATION_ID,
         "table_embedding_normalization": "preserve_markdown_newlines",
         "token_count_basis": "embedding_text",
         "overlap_token_basis": "normalized_embedding_text",
         "tail_token_basis": "normalized_embedding_text",
-        "bm25_source_field": "embedding_text",
+        "bm25_source_field": "embedding_text_or_table_plain_text",
         "tokenizer_model": codec.model_name,
         "tokenizer_encoding": codec.encoding_name,
         "tokenizer_version": codec.version,
         "kss_version": EXPECTED_KSS_VERSION,
         "kss_backend": KssSentenceSplitter.backend,
         "kss_num_workers": KssSentenceSplitter.num_workers,
+        "kss_input_max_chars": KSS_INPUT_MAX_CHARS,
         "kiwipiepy_version": EXPECTED_KIWI_VERSION,
         "bm25_pos_policy": BM25_POS_POLICY_ID,
         "bm25_excluded_pos_prefixes": list(BM25_EXCLUDED_POS_PREFIXES),
@@ -2422,6 +2828,9 @@ def build_advanced_summary(
             round(statistics.fmean(overlaps), 2) if overlaps else 0.0
         ),
         "overlap_actual_max": max(overlaps, default=0),
+        "token_slice_overlap_count": sum(
+            bool(chunk.get("token_slice_overlap")) for chunk in chunks
+        ),
         "validation": dict(validation),
     }
 
@@ -2431,6 +2840,8 @@ __all__ = [
     "AdvancedChunkingResult",
     "AdvancedTextStream",
     "BM25_EXCLUDED_POS_PREFIXES",
+    "KSS_INPUT_MAX_CHARS",
+    "section_scope_of",
     "BM25_POS_POLICY_ID",
     "BM25_TOKEN_NORMALIZATION",
     "CORPUS_ID",

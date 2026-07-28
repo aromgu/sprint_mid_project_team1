@@ -77,7 +77,10 @@ def test_hwp_table_keeps_markdown_and_merged_cell_html() -> None:
 
     assert formats["vectorize_field"] == "table_markdown"
     assert "|" in formats["table_markdown"]
-    assert "[병합 2행×2열]" in formats["table_markdown"]
+    # Markdown에는 병합 주석을 넣지 않고 값을 반복해 채운다. 2행×2열 병합이므로
+    # 헤더 행과 데이터 행 모두에서 같은 값이 각 열에 채워진다.
+    assert "[병합" not in formats["table_markdown"]
+    assert formats["table_markdown"].count("공통 과업") == 4
     assert "<table" not in formats["table_markdown"]
     assert 'data-table-id="source:body:T000001"' in formats["table_html"]
     assert 'rowspan="2"' in formats["table_html"]
@@ -107,9 +110,15 @@ def test_hwp_table_uses_image_reference_without_binary_payload() -> None:
     )
 
     for value in (formats["table_html"], formats["table_markdown"]):
-        assert f"image://{picture_id}" in value
         assert "data:" not in value
         assert "base64" not in value.casefold()
+
+    # 팀 회의 결정(2026-07-28): 이미지 참조는 임베딩 본문에서 빼고 table_html과
+    # image_refs에만 남긴다. 셀 위치는 HTML의 <img>가 보존한다.
+    assert f"image://{picture_id}" in formats["table_html"]
+    assert "image://" not in formats["table_markdown"]
+    assert formats["image_refs"] == [picture_id]
+    assert formats["nested_table_refs"] == []
 
 
 def test_hwp_table_escapes_untrusted_text_in_html() -> None:
@@ -146,3 +155,78 @@ def test_pdf_table_builds_dual_formats_and_vectorizes_markdown() -> None:
     assert "<tbody>" in formats["table_html"]
     assert "승인 &lt;완료&gt;" in formats["table_html"]
     assert "data:" not in formats["table_html"]
+
+
+def test_pdf_table_markdown_keeps_literal_characters() -> None:
+    """table_markdown은 Dense 임베딩 본문이므로 원문 기호를 그대로 담는다.
+
+    회귀 방지: ``공통 > 기준정보관리``가 ``공통 &gt; 기준정보관리``로 저장되면
+    원문에 없는 HTML 엔티티가 임베딩된다. HTML 이스케이프는 table_html 몫이다.
+    """
+    formats = build_pdf_table_formats(
+        [
+            ["구분", "내용"],
+            ["메뉴", "공통 > 기준정보관리 기능 정의"],
+            ["조건", "처리시간 < 3초 & 동시접속 200명"],
+        ],
+        table_id="pdf-source:p0007:T000001",
+    )
+
+    markdown = formats["table_markdown"]
+    assert "공통 > 기준정보관리 기능 정의" in markdown
+    assert "처리시간 < 3초 & 동시접속 200명" in markdown
+    assert "&gt;" not in markdown
+    assert "&lt;" not in markdown
+    assert "&amp;" not in markdown
+
+    # 같은 원문을 HTML로 저장할 때는 여전히 HTML 이스케이프가 필요하다.
+    html = formats["table_html"]
+    assert "공통 &gt; 기준정보관리 기능 정의" in html
+    assert "처리시간 &lt; 3초 &amp; 동시접속 200명" in html
+
+
+def test_hwp_table_markdown_keeps_literal_characters() -> None:
+    """HWP 표 셀과 캡션도 원문 기호를 엔티티로 바꾸지 않는다."""
+    table = _table(
+        [_cell(0, 0, "공통 > 기준정보관리 & 배점 < 30")],
+        rows=1,
+        cols=1,
+        caption="<사후변경에 따른 복수의결권주식의 보통주 전환>",
+    )
+
+    formats = build_hwp_table_formats(
+        table,
+        table_ids={id(table): "source:body:T000004"},
+        picture_ids={},
+    )
+
+    markdown = formats["table_markdown"]
+    assert "공통 > 기준정보관리 & 배점 < 30" in markdown
+    assert "<사후변경에 따른 복수의결권주식의 보통주 전환>" in markdown
+    assert "&gt;" not in markdown
+    assert "&lt;" not in markdown
+
+    html = formats["table_html"]
+    assert "공통 &gt; 기준정보관리 &amp; 배점 &lt; 30" in html
+
+
+def test_table_markdown_still_neutralizes_html_table_markup() -> None:
+    """원문이 표 HTML 문자열이면 Markdown 계약을 지키도록 중화한다.
+
+    ``table_markdown``에 표 태그가 남으면 청킹 단계의 HTML_TABLE_TAG 가드가
+    ValueError를 낸다. 원문 기호 보존과 달리 이 경우는 이스케이프가 필요하다.
+    """
+    formats = build_pdf_table_formats(
+        [
+            ["구분", "<table>문자열</table>"],
+            ["스크립트", '<script>alert("x")</script>'],
+        ],
+        table_id="pdf-source:p0009:T000001",
+    )
+
+    markdown = formats["table_markdown"]
+    assert "&lt;table&gt;문자열&lt;/table&gt;" in markdown
+    assert "<table" not in markdown
+    assert "</table" not in markdown
+    assert "<script>" not in markdown
+    assert "&lt;script&gt;" in markdown
