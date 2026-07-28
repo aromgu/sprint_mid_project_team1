@@ -128,12 +128,36 @@ ADVANCED_V2_SECTION_PACKED_INPUT_CONTRACT = AdvancedInputContract(
     ),
     corpus_id="advanced_v2",
 )
+# 경계 overlap을 토큰 단위로 보장하고(28.7% -> 99.7%), 중첩 표·이미지 참조를
+# 임베딩 본문에서 빼 metadata로 옮긴 청크다. 중첩 표 섹션 제목의 표 ID도
+# 제거해 Kiwi가 ID를 조각 토큰으로 쪼개지 않는다.
+ADVANCED_V2_TOKEN_OVERLAP_INPUT_CONTRACT = AdvancedInputContract(
+    name="advanced_v2_token_overlap_reference_metadata",
+    input_sha256="57758d475d159143cebf34c8ce8c1c6226ae6424775fffaec0e28ebba95eb08e",
+    chunk_count=18_258,
+    document_count=98,
+    total_tokens=10_247_564,
+    text_chunk_count=5_830,
+    table_chunk_count=12_428,
+    # 내용이 완전히 빈 표 청크 23개는 BM25에서 제외된다.
+    bm25_chunk_count=18_235,
+    bm25_token_total=3_920_763,
+    schema_version="rfp_advanced_chunk_v2",
+    strategy_id=(
+        "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_"
+        "no_text_newline_cl100k_base_512_51_v2"
+    ),
+    corpus_id="advanced_v2",
+)
+
+
 INPUT_CONTRACTS_BY_SHA256 = {
     contract.input_sha256: contract
     for contract in (
         ADVANCED_V2_INPUT_CONTRACT,
         ADVANCED_V2_TABLE_WHOLE_INPUT_CONTRACT,
         ADVANCED_V2_SECTION_PACKED_INPUT_CONTRACT,
+        ADVANCED_V2_TOKEN_OVERLAP_INPUT_CONTRACT,
     )
 }
 

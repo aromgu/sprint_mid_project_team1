@@ -816,7 +816,10 @@ def parse_markdown_table_segments(value: str) -> list[MarkdownTableSegment]:
             header_lines = (table_rows[0], table_rows[1])
             data_rows = tuple(table_rows[2:])
         else:
-            header_lines = ("| 내용 |", "| --- |")
+            # GFM은 헤더 행이 있어야 표로 인식되지만, 원문에 없는 '내용'이라는
+            # 단어를 임베딩 본문에 넣을 이유는 없다. 팀장님 결정(2026-07-28)에
+            # 따라 빈 헤더를 쓴다. 빈 셀은 실제 문서에도 그대로 나오는 형태다.
+            header_lines = ("|  |", "| --- |")
             data_rows = tuple(
                 f"| {escape_markdown_fallback_cell(row)} |" for row in table_rows
             )

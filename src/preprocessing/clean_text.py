@@ -744,15 +744,19 @@ def render_table_gfm(
             picture_ids,
             reference_mode=reference_mode,
         )
-        # 제목의 표 ID도 검색어가 아니다. Kiwi가 ID를 조각 토큰으로 쪼개
-        # 어휘 색인을 오염시키므로 metadata 모드에서는 ID를 넣지 않는다. 어떤
-        # 표였는지는 부모 청크의 nested_table_ref_ids와 table_segment_index로
-        # 되짚을 수 있고, 셀 위치는 table_html이 보존한다.
+        # 팀장님 결정(2026-07-28): metadata 모드에서는 제목을 아예 넣지 않는다.
+        # "**중첩 표**"는 원문에 없는 문자열이라 병합 주석([병합 3행x2열])을
+        # 걷어낸 것과 같은 이유로 임베딩 본문에서 빼야 하고, Kiwi가 '중첩'·'표'
+        # 토큰을 743개 청크에 더해 어휘 색인도 오염시킨다.
+        #
+        # 제목이 없어도 세그먼트는 그대로 나뉜다. parse_markdown_table_segments는
+        # 연속한 표 행 묶음으로 나누므로 sections 사이의 빈 줄이 경계가 된다.
+        # 어떤 중첩 표였는지는 nested_table_ref_ids와 table_segment_index로
+        # 되짚고, 셀 위치는 table_html이 보존한다.
         if reference_mode == REFERENCE_MODE_INLINE:
-            heading = f"**중첩 표 `{nested_id}`**"
+            sections.append(f"**중첩 표 `{nested_id}`**\n\n{nested_markdown}")
         else:
-            heading = "**중첩 표**"
-        sections.append(f"{heading}\n\n{nested_markdown}")
+            sections.append(nested_markdown)
     return "\n\n".join(sections)
 
 
