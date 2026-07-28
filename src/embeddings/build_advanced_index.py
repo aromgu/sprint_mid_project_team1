@@ -68,6 +68,9 @@ class AdvancedInputContract:
     schema_version: str
     strategy_id: str
     corpus_id: str
+    # 조건마다 텍스트 상한이 다르다(512, 1024). 표는 임베딩 모델 입력
+    # 한계를 그대로 쓰므로 계약에 적지 않는다.
+    text_max_tokens: int = TEXT_MAX_TOKENS
 
 
 ADVANCED_V2_INPUT_CONTRACT = AdvancedInputContract(
@@ -152,6 +155,30 @@ ADVANCED_V2_TOKEN_OVERLAP_INPUT_CONTRACT = AdvancedInputContract(
 )
 
 
+# 케이스 2: 1024토큰 / 10% overlap. 전처리는 케이스 1과 같은 preprocessed_v4를
+# 재사용하고 청킹 조건만 바꿨다. 표는 8,191 예외를 그대로 받으므로 두 조건에서
+# 거의 동일하고, 달라지는 것은 텍스트 청크다(5,830 -> 3,098).
+ADVANCED_V2_1024_INPUT_CONTRACT = AdvancedInputContract(
+    name="advanced_v2_1024_102",
+    input_sha256="a86054a34d03fc97bb8b2b221113dc314738b3d585e201efcfdaff1e7b2cf945",
+    chunk_count=15_483,
+    document_count=98,
+    total_tokens=10_182_220,
+    text_chunk_count=3_098,
+    table_chunk_count=12_385,
+    # 내용이 빈 표 세그먼트를 청크로 만들지 않으므로 모든 청크가 BM25 대상이다.
+    bm25_chunk_count=15_483,
+    bm25_token_total=3_888_655,
+    schema_version="rfp_advanced_chunk_v2",
+    strategy_id=(
+        "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_"
+        "no_text_newline_cl100k_base_1024_102_v2"
+    ),
+    corpus_id="advanced_v2",
+    text_max_tokens=1_024,
+)
+
+
 INPUT_CONTRACTS_BY_SHA256 = {
     contract.input_sha256: contract
     for contract in (
@@ -159,6 +186,7 @@ INPUT_CONTRACTS_BY_SHA256 = {
         ADVANCED_V2_TABLE_WHOLE_INPUT_CONTRACT,
         ADVANCED_V2_SECTION_PACKED_INPUT_CONTRACT,
         ADVANCED_V2_TOKEN_OVERLAP_INPUT_CONTRACT,
+        ADVANCED_V2_1024_INPUT_CONTRACT,
     )
 }
 
@@ -462,10 +490,13 @@ def audit_advanced_input(
         if content_type not in {"text", "table"}:
             raise ValueError(f"content_type 오류: {chunk_id}={content_type}")
 
-        # 표는 같은 표를 쪼개지 않기 위해 512 예외를 받는다. 상한은 임베딩
-        # 모델 입력 한계이므로 이 검사가 잘못된 API 호출도 함께 막는다.
+        # 표는 텍스트 상한 예외를 받는다. 상한은 임베딩 모델 입력 한계이므로
+        # 이 검사가 잘못된 API 호출도 함께 막는다. 텍스트 상한은 조건마다
+        # 다르므로(512, 1024) 계약에 적힌 값을 쓴다.
         token_count = row.get("token_count")
-        max_tokens = TABLE_MAX_TOKENS if content_type == "table" else TEXT_MAX_TOKENS
+        max_tokens = (
+            TABLE_MAX_TOKENS if content_type == "table" else contract.text_max_tokens
+        )
         if not isinstance(token_count, int) or not 1 <= token_count <= max_tokens:
             raise ValueError(
                 f"token_count 범위 오류: {chunk_id}={token_count} (상한 {max_tokens})"

@@ -10,6 +10,7 @@
 - 결합               : EnsembleRetriever (RRF, weights로 비중 조절)
 - 리랭킹             : reranker.py의 Qwen3-Reranker-0.6B (rerank_documents)
 """
+
 import os
 import pickle
 from typing import Any
@@ -39,10 +40,12 @@ BM25_INDEX_PATH = "/home/data/bm25_advanced_v2/bm25_index.pkl"
 
 DEFAULT_WEIGHTS: tuple[float, float] = (0.6, 0.4)
 
+
 def measure_time(func):
     """함수 실행 시간을 재서 출력해주는 데코레이터.
     60초 이상이면 '분 초' 형태로, 미만이면 '초' 단위로 출력한다.
     """
+
     @wraps(func)
     def wrapper(*args, **kwargs):
         start = time.perf_counter()
@@ -52,6 +55,7 @@ def measure_time(func):
         print(f"[{func.__name__}] 실행 시간: {_format_elapsed(elapsed)}")
 
         return result
+
     return wrapper
 
 
@@ -60,8 +64,8 @@ def _format_elapsed(seconds: float) -> str:
     measure_time 데코레이터와, 함수 내부에서 구간별로 시간을 찍을 때 공통으로 사용한다.
     """
     if seconds >= 60:
-        minutes = int(seconds // 60)   # 몫 -> 분
-        secs = seconds % 60            # 나머지 -> 초
+        minutes = int(seconds // 60)  # 몫 -> 분
+        secs = seconds % 60  # 나머지 -> 초
         return f"{minutes}분 {secs:.3f}초"
     return f"{seconds:.3f}초"
 
@@ -72,13 +76,21 @@ def _format_elapsed(seconds: float) -> str:
 _kiwi = Kiwi(num_workers=2)
 _kiwi.add_user_word("이러닝", "NNG", score=0.0)
 
-_NOUN_TAGS_FOR_MERGE = {"NNG", "NNP", "NNB"}     # 복합명사로 합칠 대상(일반/고유/의존명사)
+_NOUN_TAGS_FOR_MERGE = {"NNG", "NNP", "NNB"}  # 복합명사로 합칠 대상(일반/고유/의존명사)
 
 _CONTENT_TAG_PREFIXES = ("N", "V", "M", "X")
-_CONTENT_S_TAGS = {"SL", "SH", "SN"}            # 외국어, 한자, 숫자만 (문장부호 SF/SP/SS 등은 제외)
-_EXCLUDE_TAGS = {"VX", "XSV"}                    # 보조용언(있다/없다 등), 동사파생접미사(하다/되다 등) 제외
+_CONTENT_S_TAGS = {
+    "SL",
+    "SH",
+    "SN",
+}  # 외국어, 한자, 숫자만 (문장부호 SF/SP/SS 등은 제외)
+_EXCLUDE_TAGS = {
+    "VX",
+    "XSV",
+}  # 보조용언(있다/없다 등), 동사파생접미사(하다/되다 등) 제외
 
 _MERGE_STOP_NOUNS = {"시스템", "서비스", "관리", "운영", "지원", "센터"}
+
 
 def korean_tokenize(text: str) -> list[str]:
     """한국어 문장을 형태소 단위로 쪼개고,
@@ -108,7 +120,7 @@ def korean_tokenize(text: str) -> list[str]:
             prev is not None
             and prev["tag"] in _NOUN_TAGS_FOR_MERGE
             and t.tag in _NOUN_TAGS_FOR_MERGE
-            and prev["end"] == t.start   # 원문에서 공백 없이 바로 이어질 때만 합침
+            and prev["end"] == t.start  # 원문에서 공백 없이 바로 이어질 때만 합침
             and t.form not in _MERGE_STOP_NOUNS
         ):
             prev["form"] += t.form
@@ -153,7 +165,7 @@ def load_chunk_documents(batch_size: int = 600, min_tokens: int = 95) -> list[Do
 
         # [4] 이번 batch 결과를 LangChain Document로 변환
         for i in range(len(raw["ids"])):
-            content = raw["documents"][i]        # 청크 본문
+            content = raw["documents"][i]  # 청크 본문
             metadata = raw["metadatas"][i] or {}  # 메타데이터 (None 방지용 or {})
             # metadata 안에는 chunk_id, source_filename, issuer, project_amount_won,
             # token_count 등이 들어있음
@@ -258,7 +270,9 @@ def build_bm25_retriever(
 
         from rank_bm25 import BM25Okapi
 
-        vectorizer = BM25Okapi(target_tokens)  # 이미 토큰화되어 있으므로 Kiwi 없이 즉시 생성됨
+        vectorizer = BM25Okapi(
+            target_tokens
+        )  # 이미 토큰화되어 있으므로 Kiwi 없이 즉시 생성됨
         print(
             f"[build_bm25_retriever] 필터 적용: {len(chunk_ids)}개 중 {len(target_chunk_ids)}개 대상 "
             f"-> 새 BM25Okapi 생성"
@@ -313,6 +327,7 @@ def _to_chroma_where(metadata_filter: dict) -> dict:
         return conditions[0]
     return {"$and": conditions}
 
+
 def build_vector_retriever(k: int = 5, metadata_filter: dict | None = None):
     """Naive RAG에서 만든 Chroma 벡터스토어를 읽기 전용으로 로드해 리트리버로 반환.
 
@@ -329,7 +344,7 @@ def build_vector_retriever(k: int = 5, metadata_filter: dict | None = None):
     search_kwargs = {"k": k, "fetch_k": k * 4, "lambda_mult": 0.5}
     if metadata_filter:
         # search_kwargs["filter"] = metadata_filter  # langchain_chroma는 'filter' 키워드로 받음
-        search_kwargs["filter"] = _to_chroma_where(metadata_filter) 
+        search_kwargs["filter"] = _to_chroma_where(metadata_filter)
     return vectorstore.as_retriever(
         search_type="mmr",
         search_kwargs=search_kwargs,
@@ -360,11 +375,12 @@ def build_hybrid_retriever(
     weights: tuple[float, float] = DEFAULT_WEIGHTS,
     metadata_filter: dict | None = None,
 ) -> EnsembleRetriever:
-    """BM25 + 벡터를 결합한 하이브리드 리트리버를 만든다.
-    """
+    """BM25 + 벡터를 결합한 하이브리드 리트리버를 만든다."""
     documents = _get_cached_documents()
 
-    bm25_retriever = build_bm25_retriever(documents, k=k, metadata_filter=metadata_filter)
+    bm25_retriever = build_bm25_retriever(
+        documents, k=k, metadata_filter=metadata_filter
+    )
     vector_retriever = build_vector_retriever(k=k, metadata_filter=metadata_filter)
 
     return EnsembleRetriever(
@@ -372,9 +388,12 @@ def build_hybrid_retriever(
         weights=list(weights),
     )
 
+
 ## 5-1) 하이브리드 리트리버 캐시 (metadata_filter 없는 경우만)
 @lru_cache(maxsize=4)
-def _build_hybrid_retriever_cached(k: int, weights: tuple[float, float]) -> EnsembleRetriever:
+def _build_hybrid_retriever_cached(
+    k: int, weights: tuple[float, float]
+) -> EnsembleRetriever:
     """metadata_filter가 없는(가장 흔한) 경우를 위한 캐시.
     같은 (k, weights)로 다시 호출되면 BM25Okapi 재구축 없이 캐시된 리트리버를 즉시 반환한다.
     """
@@ -388,7 +407,9 @@ def get_hybrid_retriever(
 ) -> EnsembleRetriever:
 
     if metadata_filter:
-        return build_hybrid_retriever(k=k, weights=weights, metadata_filter=metadata_filter)
+        return build_hybrid_retriever(
+            k=k, weights=weights, metadata_filter=metadata_filter
+        )
     return _build_hybrid_retriever_cached(k, weights)
 
 
@@ -408,11 +429,11 @@ def search_documents(
     candidate_docs = retriever.invoke(query)
     t1 = time.perf_counter()
     print(f"[검색 단계] {t1 - t0:.2f}초, 후보 {len(candidate_docs)}개")
-    
+
     # [2]  리랭커(Qwen3-Reranker)로 최종 k개만 추린다.
     docs = rerank_documents(query, candidate_docs, top_n=k)
     t2 = time.perf_counter()
-    print(f"[리랭킹 단계] {t2 - t1:.2f}초")  
+    print(f"[리랭킹 단계] {t2 - t1:.2f}초")
 
     reranked_chunk_ids = [doc.metadata.get("chunk_id") for doc in docs]
     print(f"[리랭킹 결과 청크 ID] {reranked_chunk_ids}")
@@ -423,20 +444,24 @@ def search_documents(
         text_value = table_html if table_html else doc.page_content
         results.append(
             {
-                "id": doc.metadata.get("chunk_id"), # 청크 고유 ID
-                "text": text_value,                             # 실제 검색 결과로 보여줄 텍스트 (표가 있으면 표 HTML, 없으면 원문)
-                "file_nm": doc.metadata.get("source_filename"), # 파일명
-                "file_type": doc.metadata.get("file_type"), # 파일 확장자
-                "score": doc.metadata.get("rerank_score"), # 리랭커 점수 (rerank_documents가 채워줌)
+                "id": doc.metadata.get("chunk_id"),  # 청크 고유 ID
+                "text": text_value,  # 실제 검색 결과로 보여줄 텍스트 (표가 있으면 표 HTML, 없으면 원문)
+                "file_nm": doc.metadata.get("source_filename"),  # 파일명
+                "file_type": doc.metadata.get("file_type"),  # 파일 확장자
+                "score": doc.metadata.get(
+                    "rerank_score"
+                ),  # 리랭커 점수 (rerank_documents가 채워줌)
                 "page_start": doc.metadata.get("page_start"),  # 페이지 시작번호
                 "project_name": doc.metadata.get("project_name"),  # 사업명
-                "project_amount_won": doc.metadata.get("project_amount_won"),  # 사업 금액 (원)
+                "project_amount_won": doc.metadata.get(
+                    "project_amount_won"
+                ),  # 사업 금액 (원)
                 "notice_number": doc.metadata.get("notice_number"),  # 공고번호
-                "notice_round": doc.metadata.get("notice_round"), # 공고차수
-                "issuer": doc.metadata.get("issuer"),      # 발주기관
-                "published_at": doc.metadata.get("published_at"), # 공고 게시일시
-                "bid_start_at": doc.metadata.get("bid_start_at"), # 입찰 시작일시
-                "bid_end_at": doc.metadata.get("bid_end_at"),     # 입찰 마감일시
+                "notice_round": doc.metadata.get("notice_round"),  # 공고차수
+                "issuer": doc.metadata.get("issuer"),  # 발주기관
+                "published_at": doc.metadata.get("published_at"),  # 공고 게시일시
+                "bid_start_at": doc.metadata.get("bid_start_at"),  # 입찰 시작일시
+                "bid_end_at": doc.metadata.get("bid_end_at"),  # 입찰 마감일시
             }
         )
     return results

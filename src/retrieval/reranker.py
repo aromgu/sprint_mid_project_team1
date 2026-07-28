@@ -2,6 +2,7 @@
 # reranker.py
 Qwen3-Reranker-0.6B 기반 리랭커
 """
+
 import torch
 
 from functools import lru_cache
@@ -69,7 +70,6 @@ def rerank_documents(
 
     reranked: list[Document] = []
     for doc, score in scored_docs[:top_n]:
-
         new_doc = Document(
             page_content=doc.page_content,
             metadata={**doc.metadata, "rerank_score": float(score)},
