@@ -179,6 +179,29 @@ ADVANCED_V2_1024_INPUT_CONTRACT = AdvancedInputContract(
 )
 
 
+# 케이스 3: 시멘틱 청킹(거리 임계값 p83=0.706 / 상한 1024 / 하한 256 / overlap 0).
+# 전처리와 문장 경계는 케이스 1·2와 같은 것을 재사용하고 자르는 규칙만 바꿨다.
+# 표는 8,191 예외를 그대로 받으므로 케이스 2와 동일하다.
+ADVANCED_V2_SEMANTIC_P83_INPUT_CONTRACT = AdvancedInputContract(
+    name="advanced_v2_semantic_p83",
+    input_sha256="9341794fcaafaa7364da95a0d60fc8da49368fdb2536a88be41f2f445edbb57d",
+    chunk_count=15_985,
+    document_count=98,
+    total_tokens=10_030_301,
+    text_chunk_count=3_600,
+    table_chunk_count=12_385,
+    bm25_chunk_count=15_985,
+    bm25_token_total=3_818_866,
+    schema_version="rfp_advanced_chunk_v2",
+    strategy_id=(
+        "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_"
+        "no_text_newline_cl100k_base_semantic_p83_1024_0_v2"
+    ),
+    corpus_id="advanced_v2",
+    text_max_tokens=1_024,
+)
+
+
 INPUT_CONTRACTS_BY_SHA256 = {
     contract.input_sha256: contract
     for contract in (
@@ -187,6 +210,7 @@ INPUT_CONTRACTS_BY_SHA256 = {
         ADVANCED_V2_SECTION_PACKED_INPUT_CONTRACT,
         ADVANCED_V2_TOKEN_OVERLAP_INPUT_CONTRACT,
         ADVANCED_V2_1024_INPUT_CONTRACT,
+        ADVANCED_V2_SEMANTIC_P83_INPUT_CONTRACT,
     )
 }
 
