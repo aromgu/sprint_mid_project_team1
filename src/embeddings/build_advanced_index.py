@@ -129,19 +129,20 @@ ADVANCED_V2_SECTION_PACKED_INPUT_CONTRACT = AdvancedInputContract(
     corpus_id="advanced_v2",
 )
 # 경계 overlap을 토큰 단위로 보장하고(28.7% -> 99.7%), 중첩 표·이미지 참조를
-# 임베딩 본문에서 빼 metadata로 옮긴 청크다. 중첩 표 섹션 제목의 표 ID도
-# 제거해 Kiwi가 ID를 조각 토큰으로 쪼개지 않는다.
+# 임베딩 본문에서 빼 metadata로 옮긴 청크다. 중첩 표 섹션 제목(**중첩 표**)도
+# 원문에 없는 문자열이라 제거했다. 구분선 없는 표 행에 붙는 합성 헤더
+# (| 내용 |) 68개는 남아 있고 다음 조건 실행 때 함께 정리한다.
 ADVANCED_V2_TOKEN_OVERLAP_INPUT_CONTRACT = AdvancedInputContract(
     name="advanced_v2_token_overlap_reference_metadata",
-    input_sha256="57758d475d159143cebf34c8ce8c1c6226ae6424775fffaec0e28ebba95eb08e",
+    input_sha256="62ba1a70cb4ed7d70789186c7ad9912b40cac0266af8ea1adf4dc87fb197e082",
     chunk_count=18_258,
     document_count=98,
-    total_tokens=10_247_564,
+    total_tokens=10_241_620,
     text_chunk_count=5_830,
     table_chunk_count=12_428,
     # 내용이 완전히 빈 표 청크 23개는 BM25에서 제외된다.
-    bm25_chunk_count=18_235,
-    bm25_token_total=3_920_763,
+    bm25_chunk_count=18_215,
+    bm25_token_total=3_919_283,
     schema_version="rfp_advanced_chunk_v2",
     strategy_id=(
         "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_"
