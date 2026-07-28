@@ -48,10 +48,20 @@ from src.chunking.split_text import (
 )
 
 SCHEMA_VERSION = "rfp_advanced_chunk_v2"
-STRATEGY_ID = (
-    "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_no_text_newline_"
-    "cl100k_base_512_51_v2"
+STRATEGY_BASE = (
+    "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_no_text_newline_cl100k_base"
 )
+
+
+def strategy_id_for(max_tokens: int, overlap_tokens: int) -> str:
+    """토큰 조건을 이름에 박아 조건과 strategy_id가 어긋나지 않게 한다.
+
+    512/51을 문자열로 적어 두면 조건만 바꿨을 때 이름이 조용히 옛 값으로 남는다.
+    조건마다 결과 폴더와 컬렉션이 달라지므로 그 사고는 두 실험을 섞어 버린다.
+    """
+    return f"{STRATEGY_BASE}_{max_tokens}_{overlap_tokens}_v2"
+
+
 CORPUS_ID = "advanced_v2"
 INPUT_SCHEMA_VERSION = "rfp_advanced_preprocessing_v1"
 DEFAULT_MODEL = "text-embedding-3-small"
@@ -63,6 +73,7 @@ DEFAULT_MAX_TOKENS = 512
 DEFAULT_TABLE_MAX_TOKENS = 8191
 DEFAULT_OVERLAP_TOKENS = 51
 DEFAULT_MIN_TAIL_TOKENS = DEFAULT_OVERLAP_TOKENS
+STRATEGY_ID = strategy_id_for(DEFAULT_MAX_TOKENS, DEFAULT_OVERLAP_TOKENS)
 # KSS(pecab)는 입력이 길어지면 제곱에 가깝게 느려진다. 그래서 스트림 전체를 한 번에
 # 넣지 않고 문단("\n\n") 경계에서 이 상한 이하로 나눠 호출한다. 문장은 빈 줄을 넘지
 # 않으므로 나눠 호출해도 문장 경계 결과는 같다.
@@ -162,7 +173,22 @@ class AdvancedChunkConfig:
     min_tail_tokens: int = DEFAULT_MIN_TAIL_TOKENS
     model_name: str = DEFAULT_MODEL
     encoding_name: str = DEFAULT_ENCODING
-    strategy_id: str = STRATEGY_ID
+    strategy_id: str = ""
+
+    def __post_init__(self) -> None:
+        """strategy_id를 비워 두면 토큰 조건에서 자동으로 만든다.
+
+        512/51을 이름에 문자열로 적어 두면 조건만 바꿨을 때 이름이 옛 값으로
+        남아 서로 다른 실험이 같은 strategy_id로 기록된다. 실행 스크립트는
+        이름을 비워 넘기므로 그 사고가 생기지 않는다. 이름을 직접 넘기는 쪽은
+        의도한 값을 쓰는 것으로 보고 그대로 존중한다.
+        """
+        if not self.strategy_id:
+            object.__setattr__(
+                self,
+                "strategy_id",
+                strategy_id_for(self.max_tokens, self.overlap_tokens),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1869,6 +1895,20 @@ def chunk_advanced_table_block(
         parts = _chunk_table_segment_texts(segment, codec, config)
         for part_index, part in enumerate(parts, start=1):
             segment_parts.append((segment, part, part_index, len(parts)))
+
+    # 참조를 metadata로 옮긴 뒤 셀이 전부 비는 세그먼트가 생긴다. 배치용 부모
+    # 격자가 그런 경우다(실측 43개). 검색어가 하나도 없으므로 청크로 만들지
+    # 않는다. 실제 내용은 같은 블록의 다른 세그먼트에 그대로 있다.
+    #
+    # 전부 비어 있으면 블록이 청크 0개가 되어 커버리지 게이트가 깨지므로 그때는
+    # 원래 목록을 그대로 쓴다.
+    with_content = [
+        item
+        for item in segment_parts
+        if table_markdown_to_plain_text(str(item[1]["text"])).strip()
+    ]
+    if with_content:
+        segment_parts = with_content
 
     chunks: list[dict[str, Any]] = []
     for table_part_index, (

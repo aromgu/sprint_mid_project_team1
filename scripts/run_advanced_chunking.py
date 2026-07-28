@@ -27,7 +27,7 @@ from src.chunking.advanced_chunking import (
     INPUT_SCHEMA_VERSION,
     PAGE_MARKER_DETECTOR_ID,
     SCHEMA_VERSION,
-    STRATEGY_ID,
+    DEFAULT_MAX_TOKENS,
     TEXT_EMBEDDING_NORMALIZATION_ID,
     AdvancedChunkConfig,
     KiwiBm25Tokenizer,
@@ -476,6 +476,24 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="기존 출력과 보고서를 명시적으로 교체합니다.",
     )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=DEFAULT_MAX_TOKENS,
+        help=(
+            "일반 텍스트 청크의 토큰 상한입니다. 표는 임베딩 모델 입력 상한까지 "
+            "예외를 받으므로 이 값과 무관합니다."
+        ),
+    )
+    parser.add_argument(
+        "--overlap-tokens",
+        type=int,
+        default=None,
+        help=(
+            "경계 overlap 토큰 수입니다. 생략하면 --max-tokens의 10%%를 씁니다. "
+            "조건이 바뀌면 strategy_id와 출력 폴더도 함께 바꿔야 합니다."
+        ),
+    )
     return parser
 
 
@@ -511,14 +529,24 @@ def main() -> None:
         selected_blocks,
     )
 
-    config = AdvancedChunkConfig()
+    overlap_tokens = (
+        args.overlap_tokens
+        if args.overlap_tokens is not None
+        else round(args.max_tokens / 10)
+    )
+    # strategy_id는 비워서 넘긴다. config가 토큰 조건에서 직접 만든다.
+    config = AdvancedChunkConfig(
+        max_tokens=args.max_tokens,
+        overlap_tokens=overlap_tokens,
+        min_tail_tokens=overlap_tokens,
+    )
     codec = TiktokenCodec(config.model_name, config.encoding_name)
     validation_report = {
         "schema_version": RUN_REPORT_SCHEMA_VERSION,
         "input_schema_version": INPUT_SCHEMA_VERSION,
         "chunk_schema_version": SCHEMA_VERSION,
         "corpus_id": CORPUS_ID,
-        "strategy_id": STRATEGY_ID,
+        "strategy_id": config.strategy_id,
         "page_marker_detector_id": PAGE_MARKER_DETECTOR_ID,
         "embedding_text_field": "embedding_text",
         "text_embedding_normalization": TEXT_EMBEDDING_NORMALIZATION_ID,
@@ -593,7 +621,7 @@ def main() -> None:
             "input_schema_version": INPUT_SCHEMA_VERSION,
             "chunk_schema_version": SCHEMA_VERSION,
             "corpus_id": CORPUS_ID,
-            "strategy_id": STRATEGY_ID,
+            "strategy_id": config.strategy_id,
             "page_marker_detector_id": PAGE_MARKER_DETECTOR_ID,
             "embedding_text_field": "embedding_text",
             "text_embedding_normalization": TEXT_EMBEDDING_NORMALIZATION_ID,
