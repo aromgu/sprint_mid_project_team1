@@ -1,18 +1,16 @@
 """
 # reranker.py
-Qwen3-Reranker-0.6B 기반 리랭커
+Qwen3-Reranker-0.6B 기반 리랭커 (클래스 기반, 싱글톤)
 """
+import gc
+from typing import Any, ClassVar, Optional
+
 import torch
-
-from functools import lru_cache
-from typing import Any
-
 from dotenv import load_dotenv
 from langchain_core.documents import Document
 
 load_dotenv()
 
-# 모델/디바이스도 다른 설정값처럼 .env로 바꿀 수 있게 함
 RERANKER_MODEL = "Qwen/Qwen3-Reranker-0.6B"
 RERANKER_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -30,77 +28,110 @@ RERANK_TASK_INSTRUCTION = (
 )
 
 
-@lru_cache(maxsize=1)
-def get_reranker():
-    """CrossEncoder(Qwen3-Reranker-0.6B) 모델을 한 번만 로드해서 재사용한다.
+class Reranker:
+    """Qwen3-Reranker(CrossEncoder)를 한 번만 로드해서 재사용하는 싱글톤 클래스.
 
-    ※ prompts/default_prompt_name으로 위에서 정의한 RFP 전용 instruct를 심어준다.
-      이걸 안 하면 라이브러리 기본값인 "Given a web search query, retrieve relevant
-      passages that answer the query" 라는 범용 지시문이 쓰이는데, 이건 "요구사항 문서"와
-      "행정 서약서"를 구분하라는 의미가 전혀 없어서 지금 같은 문제가 생기기 쉽다.
+    ※ 싱글톤이란: 이 클래스로 객체를 아무리 여러 번 만들어도(Reranker() 호출을
+      몇 번을 하든) 실제로는 맨 처음 만든 객체 딱 하나만 계속 재사용된다는 뜻.
+      __new__를 오버라이드해서 "이미 만든 인스턴스가 있으면 그걸 그대로 반환"하는
+      방식으로 구현했다. 기존 @lru_cache(maxsize=1)와 동일한 효과를 클래스로 표현한 것.
     """
-    from sentence_transformers import CrossEncoder
 
-    print(f"[reranker] '{RERANKER_MODEL}' 로딩 중... (device={RERANKER_DEVICE})")
-    model = CrossEncoder(
-        RERANKER_MODEL,
-        device=RERANKER_DEVICE,
-        prompts={"rfp_requirement": RERANK_TASK_INSTRUCTION},
-        default_prompt_name="rfp_requirement",
-    )
-    print("[reranker] 로딩 완료")
-    return model
+    _instance: ClassVar[Optional["Reranker"]] = None
 
+    def __new__(cls, *args, **kwargs):
+        # 클래스 변수 _instance가 비어있을 때(=최초 1회)만 실제로 새 객체를 만든다.
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False  # 아직 모델 로딩 전이라는 표시
+        return cls._instance
 
-def rerank_documents(
-    query: str,
-    documents: list[Document],
-    top_n: int = 5,
-) -> list[Document]:
-    if not documents:
-        return []
+    def __init__(
+        self,
+        model_name: str = RERANKER_MODEL,
+        device: str = RERANKER_DEVICE,
+        instruction: str = RERANK_TASK_INSTRUCTION,
+    ):
+        # __new__에서 이미 초기화된 인스턴스를 반환한 경우,
+        # __init__은 파이썬이 자동으로 또 호출하지만 모델을 중복 로드하면 안 되므로 여기서 막는다.
+        if self._initialized:
+            return
 
-    model = get_reranker()
-    pairs = [(query, doc.page_content) for doc in documents]
-    scores = model.predict(pairs)
+        from sentence_transformers import CrossEncoder
 
-    scored_docs = list(zip(documents, scores))
-    scored_docs.sort(key=lambda pair: pair[1], reverse=True)
-
-    reranked: list[Document] = []
-    for doc, score in scored_docs[:top_n]:
-
-        new_doc = Document(
-            page_content=doc.page_content,
-            metadata={**doc.metadata, "rerank_score": float(score)},
+        print(f"[Reranker] '{model_name}' 로딩 중... (device={device})")
+        self.model = CrossEncoder(
+            model_name,
+            device=device,
+            prompts={"rfp_requirement": instruction},
+            default_prompt_name="rfp_requirement",
         )
-        reranked.append(new_doc)
+        self.device = device
+        print("[Reranker] 로딩 완료")
+        self._initialized = True  # 다음부터는 __init__ 내용을 건너뜀
 
-    return reranked
+    def _predict(self, pairs: list[tuple[str, str]], batch_size: int = 32):
+        """query-document 쌍들의 관련성 점수를 계산하는 내부 공용 함수.
 
+        - torch.inference_mode(): 추론 전용 모드로, 그래디언트를 아예 추적하지 않아서
+          학습 때 쓰는 auto-grad 관련 메모리를 절약함 (OOM 완화의 핵심 포인트).
+        - torch.cuda.empty_cache(): 추론이 끝난 뒤 PyTorch가 내부적으로 쥐고 있던
+          '예약(reserved)됐지만 안 쓰는' GPU 메모리를 시스템에 반환. 멀티턴처럼
+          호출이 반복되는 상황에서 메모리가 조금씩 누적되는 걸 막아준다.
+        """
+        with torch.inference_mode():
+            scores = self.model.predict(pairs, batch_size=batch_size)
 
-def rerank_search_results(
-    query: str,
-    results: list[dict[str, Any]],
-    top_n: int = 5,
-) -> list[dict[str, Any]]:
+        if self.device == "cuda":
+            torch.cuda.empty_cache()
+        gc.collect()
 
-    if not results:
-        return []
+        return scores
 
-    model = get_reranker()
+    def rerank_documents(
+        self,
+        query: str,
+        documents: list[Document],
+        top_n: int = 5,
+    ) -> list[Document]:
+        if not documents:
+            return []
 
-    pairs = [(query, r["text"]) for r in results]
-    # scores = model.predict(pairs)
-    scores = model.predict(pairs, batch_size=32)
+        pairs = [(query, doc.page_content) for doc in documents]
+        scores = self._predict(pairs)
 
-    scored = list(zip(results, scores))
-    scored.sort(key=lambda pair: pair[1], reverse=True)
+        scored_docs = list(zip(documents, scores))
+        scored_docs.sort(key=lambda pair: pair[1], reverse=True)
 
-    reranked: list[dict[str, Any]] = []
-    for r, score in scored[:top_n]:
-        r = dict(r)  # 원본 딕셔너리를 건드리지 않도록 복사본 사용
-        r["score"] = float(score)  # 리랭커 점수로 score 필드 채움
-        reranked.append(r)
+        reranked: list[Document] = []
+        for doc, score in scored_docs[:top_n]:
+            new_doc = Document(
+                page_content=doc.page_content,
+                metadata={**doc.metadata, "rerank_score": float(score)},
+            )
+            reranked.append(new_doc)
 
-    return reranked
+        return reranked
+
+    def rerank_search_results(
+        self,
+        query: str,
+        results: list[dict[str, Any]],
+        top_n: int = 5,
+    ) -> list[dict[str, Any]]:
+        if not results:
+            return []
+
+        pairs = [(query, r["text"]) for r in results]
+        scores = self._predict(pairs, batch_size=32)
+
+        scored = list(zip(results, scores))
+        scored.sort(key=lambda pair: pair[1], reverse=True)
+
+        reranked: list[dict[str, Any]] = []
+        for r, score in scored[:top_n]:
+            r = dict(r)
+            r["score"] = float(score)
+            reranked.append(r)
+
+        return reranked

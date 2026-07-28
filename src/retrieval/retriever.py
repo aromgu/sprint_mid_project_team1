@@ -25,7 +25,8 @@ from kiwipiepy import Kiwi
 import time
 from functools import lru_cache, wraps
 
-from reranker import rerank_documents
+from src.retrieval.reranker import Reranker
+reranker = Reranker()
 
 load_dotenv()
 
@@ -331,11 +332,11 @@ def build_vector_retriever(k: int = 5, metadata_filter: dict | None = None):
         # search_kwargs["filter"] = metadata_filter  # langchain_chroma는 'filter' 키워드로 받음
         search_kwargs["filter"] = _to_chroma_where(metadata_filter) 
     return vectorstore.as_retriever(
-        search_type="mmr",
+        search_type="mmr",  # "관련성"과 "다양성"을 동시에 고려하는 검색 방식
         search_kwargs=search_kwargs,
     )
     # return vectorstore.as_retriever(
-    #     search_type="similarity",
+    #     search_type="similarity",  # 쿼리와 가장 가까운 문서 k개를 그냥 순서대로 뽑음
     #     search_kwargs=search_kwargs,
     # )
 
@@ -391,7 +392,89 @@ def get_hybrid_retriever(
         return build_hybrid_retriever(k=k, weights=weights, metadata_filter=metadata_filter)
     return _build_hybrid_retriever_cached(k, weights)
 
+import re
 
+# ══════════════════════════════════════════════════════════════
+# 정확 매칭(숫자/공고번호 등) 추출 & 매칭 점수 계산
+# ══════════════════════════════════════════════════════════════
+
+# 숫자/금액 패턴: "3억 2천만원", "1,234,000원" 처럼 콤마·숫자로 이루어진 덩어리를 잡음
+_NUMBER_PATTERN = re.compile(r"\d[\d,]*")
+# 공고번호 스타일 패턴: "2024-123" 같은 "연도-일련번호" 형태
+_NOTICE_NUMBER_PATTERN = re.compile(r"\d{4}-\d+")
+
+
+def extract_exact_match_terms(query: str) -> list[str]:
+    """쿼리 안에서 '정확히 일치해야 의미 있는' 토큰(숫자, 공고번호 등)만 뽑아낸다.
+
+    예: "국민연금공단 2024-15 공고의 예산액 320,000,000원은?"
+        -> ["2024-15", "320,000,000"] 처럼 추출됨
+    일반 명사(국민연금공단, 예산액 등)는 리랭커/BM25가 이미 잘 처리하므로 여기서는 다루지 않음.
+    """
+    terms = set()
+    terms.update(_NOTICE_NUMBER_PATTERN.findall(query))  # 공고번호부터 먼저 (더 구체적인 패턴)
+    terms.update(_NUMBER_PATTERN.findall(query))
+    # 길이 2 미만인 숫자("1", "3" 등)는 우연히 겹칠 확률이 높은 노이즈라서 제외
+    return [t for t in terms if len(t) >= 2]
+
+
+def exact_match_boost(doc_text: str, exact_terms: list[str]) -> float:
+    """문서 본문에 쿼리의 정확매칭 term이 몇 개나 그대로 들어있는지를 0~1 비율로 반환."""
+    if not exact_terms:
+        return 0.0  # 쿼리에 숫자/공고번호가 아예 없으면 boost 없음 (0으로 fallback)
+    hits = sum(1 for term in exact_terms if term in doc_text)
+    return hits / len(exact_terms)
+
+
+def _min_max_normalize(values: list[float]) -> list[float]:
+    """BM25 원점수처럼 스케일이 들쭉날쭉한 값을 0~1 사이로 맞춰준다.
+    (리랭커 점수와 같은 스케일로 맞춰야 가중합이 의미 있어짐)
+    """
+    if not values:
+        return []
+    lo, hi = min(values), max(values)
+    if hi == lo:  # 모든 값이 같으면 나눗셈 0 방지
+        return [0.0 for _ in values]
+    return [(v - lo) / (hi - lo) for v in values]
+
+
+# ══════════════════════════════════════════════════════════════
+# 점수 융합 (리랭커 + BM25 원점수 + 정확매칭 boost)
+# ══════════════════════════════════════════════════════════════
+def apply_score_fusion(
+    query: str,
+    scored_docs: list[Document],   # rerank_documents가 이미 rerank_score를 채워준 상태
+    top_n: int,
+    weights: tuple[float, float, float] = (0.7, 0.15, 0.15),  # (리랭커, BM25, 정확매칭) 비중
+) -> list[Document]:
+    """세 가지 점수를 가중합해서 최종 top_n개를 다시 뽑는다."""
+    w_rerank, w_bm25, w_exact = weights
+
+    # [1] BM25 원점수 계산 (전체 청크 코퍼스 기준 raw score를 직접 조회)
+    bm25_retriever = build_bm25_retriever(_get_cached_documents(), k=len(scored_docs))
+    tokenized_query = korean_tokenize(query)  # BM25 인덱스와 동일한 토큰화 기준 사용 (매우 중요!)
+    raw_scores = bm25_retriever.vectorizer.get_scores(tokenized_query)
+    chunk_id_to_bm25 = {
+        d.metadata.get("chunk_id"): s
+        for d, s in zip(bm25_retriever.docs, raw_scores)
+    }
+    bm25_values = [chunk_id_to_bm25.get(d.metadata.get("chunk_id"), 0.0) for d in scored_docs]
+    bm25_norm = _min_max_normalize(bm25_values)  # 0~1로 정규화
+
+    # [2] 정확매칭(숫자/공고번호) boost 계산
+    exact_terms = extract_exact_match_terms(query)
+    exact_scores = [exact_match_boost(d.page_content, exact_terms) for d in scored_docs]
+
+    # [3] 가중합해서 최종 점수 산출
+    fused: list[tuple[float, Document]] = []
+    for doc, bm25_s, exact_s in zip(scored_docs, bm25_norm, exact_scores):
+        rerank_s = doc.metadata.get("rerank_score", 0.0)
+        final_score = w_rerank * rerank_s + w_bm25 * bm25_s + w_exact * exact_s
+        doc.metadata["fused_score"] = final_score  # 디버깅/로그 확인용으로 남겨둠
+        fused.append((final_score, doc))
+
+    fused.sort(key=lambda x: x[0], reverse=True)  # 최종 점수 기준 내림차순 정렬
+    return [doc for _, doc in fused[:top_n]]
 # ══════════════════════════════════════════════════════════════
 # 6) 검색 함수 (기존 search_documents와 같은 반환 형태로 맞춤)
 # ══════════════════════════════════════════════════════════════
@@ -399,8 +482,9 @@ def get_hybrid_retriever(
 def search_documents(
     query: str,
     k: int = 5,
-    candidate_k: int = 35,
+    candidate_k: int = 30,
     metadata_filter: dict | None = None,
+    use_score_fusion: bool = True,
 ) -> list[dict[str, Any]]:
     """하이브리드 검색 + 리랭킹을 한 번에 수행한다."""
     t0 = time.perf_counter()
@@ -409,10 +493,22 @@ def search_documents(
     t1 = time.perf_counter()
     print(f"[검색 단계] {t1 - t0:.2f}초, 후보 {len(candidate_docs)}개")
     
-    # [2]  리랭커(Qwen3-Reranker)로 최종 k개만 추린다.
-    docs = rerank_documents(query, candidate_docs, top_n=k)
+    # 리랭커(Qwen3-Reranker)로 "후보 전체"를 채점한다.
+    #     주의: top_n을 k가 아니라 후보 개수 전체로 줘야 함
+    #     -> fusion 단계에서 모든 후보의 rerank_score가 필요하기 때문
+    # all_reranked = rerank_documents(query, candidate_docs, top_n=len(candidate_docs))
+    all_reranked = reranker.rerank_documents(query, candidate_docs, top_n=len(candidate_docs))
+    
     t2 = time.perf_counter()
-    print(f"[리랭킹 단계] {t2 - t1:.2f}초")  
+    print(f"[리랭킹 단계] {t2 - t1:.2f}초")
+
+    # use_score_fusion에 따라 최종 k개를 결정하는 방식이 갈림
+    if use_score_fusion:
+        docs = apply_score_fusion(query, all_reranked, top_n=k)
+        t3 = time.perf_counter()
+        print(f"[점수 융합 단계] {t3 - t2:.2f}초")
+    else:
+        docs = all_reranked[:k]   # fusion 안 쓰면 리랭커 순서 그대로 top-k
 
     reranked_chunk_ids = [doc.metadata.get("chunk_id") for doc in docs]
     print(f"[리랭킹 결과 청크 ID] {reranked_chunk_ids}")
