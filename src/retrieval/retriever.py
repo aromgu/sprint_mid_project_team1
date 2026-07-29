@@ -28,8 +28,8 @@ import time
 
 from functools import lru_cache, wraps
 from rank_bm25 import BM25Okapi
-# from src.retrieval.reranker import Reranker
-from reranker import Reranker
+from src.retrieval.reranker import Reranker
+
 reranker = Reranker()
 
 load_dotenv()
@@ -76,9 +76,7 @@ def _format_elapsed(seconds: float) -> str:
 # 1) 한국어 토큰화 (BM25의 핵심)
 # ══════════════════════════════════════════════════════════════
 _kiwi = Kiwi(num_workers=1)
-# _kiwi.add_user_word("이러닝", "NNG", score=0.0)
 
-# 팀 회의에서 합의된 BM25 토큰화 정책
 # - 품사(POS)로는 전혀 걸러내지 않는다 -> 조사("은/는/이/가" 등), 어미("-다", "-고" 등)도 전부 토큰으로 남김
 # - 복합명사 병합도 하지 않는다 -> Kiwi가 쪼갠 형태소 단위 그대로 사용
 # - 대신 각 형태소의 표면형(form)에서 "문자/숫자/하이픈"이 아닌 특수문자만 제거
