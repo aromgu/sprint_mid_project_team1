@@ -13,6 +13,7 @@
 import os
 import pickle
 import re
+import chromadb
 from typing import Any
 
 from dotenv import load_dotenv
@@ -24,8 +25,9 @@ from langchain_classic.retrievers import EnsembleRetriever
 
 from kiwipiepy import Kiwi
 import time
-from functools import lru_cache, wraps
 
+from functools import lru_cache, wraps
+from rank_bm25 import BM25Okapi
 from src.retrieval.reranker import Reranker
 
 reranker = Reranker()
@@ -117,7 +119,6 @@ def load_chunk_documents(batch_size: int = 600, min_tokens: int = 95) -> list[Do
       너무 짧은 청크(제목 한 줄, 표 조각 등)는 정보량이 적어 BM25/벡터 검색
       양쪽 모두에서 노이즈로 작용하기 쉬워서 기본적으로 걸러낸다.
     """
-    import chromadb
 
     # [1] Chroma DB에 직접 접속
     client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
@@ -242,8 +243,6 @@ def build_bm25_retriever(
         ]
         target_chunk_ids = [chunk_ids[i] for i in selected_positions]
         target_tokens = [tokenized_corpus[i] for i in selected_positions]
-
-        from rank_bm25 import BM25Okapi
 
         vectorizer = BM25Okapi(target_tokens)  # 이미 토큰화되어 있으므로 Kiwi 없이 즉시 생성됨
         print(
