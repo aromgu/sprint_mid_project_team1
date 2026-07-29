@@ -12,6 +12,8 @@
 """
 import os
 import pickle
+import re
+import chromadb
 from typing import Any
 
 from dotenv import load_dotenv
@@ -23,9 +25,11 @@ from langchain_classic.retrievers import EnsembleRetriever
 
 from kiwipiepy import Kiwi
 import time
-from functools import lru_cache, wraps
 
+from functools import lru_cache, wraps
+from rank_bm25 import BM25Okapi
 from src.retrieval.reranker import Reranker
+
 reranker = Reranker()
 
 load_dotenv()
@@ -34,11 +38,13 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 EMBEDDINGS_MODEL = os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-small")
 # CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION_NAME", "ai11_policy_advanced_v2")
 # CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "/home/data/chroma_advanced_v2")
-CHROMA_COLLECTION = "ai11_policy_advanced_v2"
-CHROMA_PERSIST_DIR = "/home/data/chroma_advanced_v2"
-BM25_INDEX_PATH = "/home/data/bm25_advanced_v2/bm25_index.pkl"
-
-DEFAULT_WEIGHTS: tuple[float, float] = (0.6, 0.4)
+# CHROMA_COLLECTION = "ai11_policy_advanced_v2"
+# CHROMA_PERSIST_DIR = "/home/data/chroma_advanced_v2"
+# BM25_INDEX_PATH = "/home/data/bm25_advanced_v2/bm25_index.pkl"
+CHROMA_COLLECTION = "ai11_policy_advanced_v2_1024"
+CHROMA_PERSIST_DIR = "/home/data/chroma_advanced_v2_1024"
+BM25_INDEX_PATH = "/home/data/bm25_advanced_v2_1024/bm25_index.pkl"
+DEFAULT_WEIGHTS: tuple[float, float] = (0.3, 0.7)
 
 def measure_time(func):
     """함수 실행 시간을 재서 출력해주는 데코레이터.
@@ -66,58 +72,40 @@ def _format_elapsed(seconds: float) -> str:
         return f"{minutes}분 {secs:.3f}초"
     return f"{seconds:.3f}초"
 
-
 # ══════════════════════════════════════════════════════════════
 # 1) 한국어 토큰화 (BM25의 핵심)
 # ══════════════════════════════════════════════════════════════
-_kiwi = Kiwi(num_workers=2)
-_kiwi.add_user_word("이러닝", "NNG", score=0.0)
+_kiwi = Kiwi(num_workers=1)
+# _kiwi.add_user_word("이러닝", "NNG", score=0.0)
 
-_NOUN_TAGS_FOR_MERGE = {"NNG", "NNP", "NNB"}     # 복합명사로 합칠 대상(일반/고유/의존명사)
+# 팀 회의에서 합의된 BM25 토큰화 정책
+# - 품사(POS)로는 전혀 걸러내지 않는다 -> 조사("은/는/이/가" 등), 어미("-다", "-고" 등)도 전부 토큰으로 남김
+# - 복합명사 병합도 하지 않는다 -> Kiwi가 쪼갠 형태소 단위 그대로 사용
+# - 대신 각 형태소의 표면형(form)에서 "문자/숫자/하이픈"이 아닌 특수문자만 제거
+BM25_POS_POLICY_ID = "strip_special_characters_v1"
+BM25_EXCLUDED_POS_PREFIXES: tuple[str, ...] = ()  # 품사 제외 없음
+BM25_TOKEN_NORMALIZATION = "strip_special_casefold"
+BM25_SPECIAL_CHARS = re.compile(r"[^\w-]", re.UNICODE)  # \w=문자/숫자/밑줄, -=하이픈 만 허용
 
-_CONTENT_TAG_PREFIXES = ("N", "V", "M", "X")
-_CONTENT_S_TAGS = {"SL", "SH", "SN"}            # 외국어, 한자, 숫자만 (문장부호 SF/SP/SS 등은 제외)
-_EXCLUDE_TAGS = {"VX", "XSV"}                    # 보조용언(있다/없다 등), 동사파생접미사(하다/되다 등) 제외
-
-_MERGE_STOP_NOUNS = {"시스템", "서비스", "관리", "운영", "지원", "센터"}
 
 def korean_tokenize(text: str) -> list[str]:
-    """한국어 문장을 형태소 단위로 쪼개고,
-    1) 조사/어미/문장부호/보조용언 등 문법 요소는 제외하고
-    2) 공백 없이 붙어있는 명사끼리는 복합명사로 합쳐서 반환한다.
-
-    ※ 이 함수는 (a) 팀원이 BM25 인덱스(pickle)를 만들 때 쓴 토큰화 기준, (b) 지금 검색
-      질의를 토큰화할 때 쓰는 기준이 반드시 동일해야 한다. 두 기준이 다르면 질의 토큰과
-      인덱스에 저장된 토큰이 서로 어긋나서 BM25 매칭이 정확하지 않게 된다.
+    """한국어 문장을 Kiwi로 형태소 분석한 뒤, 품사 필터링·복합명사 병합 없이
+    특수문자만 제거해서 반환한다.
+    처리 순서:
+      1) Kiwi로 형태소 분석 (조사/어미 포함 전부)
+      2) 표면형에서 문자·숫자·하이픈이 아닌 기호(특수문자, 괄호, 문장부호 등) 제거
+      3) 앞뒤에 남은 하이픈/공백 제거 후 casefold(대소문자 통일)
+      4) 특수문자만 있었던 토큰(제거 후 빈 문자열)은 버림
     """
     raw_tokens = _kiwi.tokenize(text)
 
-    # [1단계] 필요 없는 품사 걸러내기
-    filtered = []
+    tokens: list[str] = []
     for t in raw_tokens:
-        tag = t.tag
-        if not tag or tag in _EXCLUDE_TAGS:
-            continue
-        if tag[0] in _CONTENT_TAG_PREFIXES or tag in _CONTENT_S_TAGS:
-            filtered.append(t)
+        normalized = BM25_SPECIAL_CHARS.sub("", t.form).strip("-").strip().casefold()
+        if normalized:  # 특수문자만 있던 토큰은 제거 후 빈 문자열이 되므로 여기서 걸러짐
+            tokens.append(normalized)
 
-    # [2단계] 붙어있는 명사끼리 하나로 합치기 (예: '예산'+'액' -> '예산액')
-    merged = []
-    for t in filtered:
-        prev = merged[-1] if merged else None
-        if (
-            prev is not None
-            and prev["tag"] in _NOUN_TAGS_FOR_MERGE
-            and t.tag in _NOUN_TAGS_FOR_MERGE
-            and prev["end"] == t.start   # 원문에서 공백 없이 바로 이어질 때만 합침
-            and t.form not in _MERGE_STOP_NOUNS
-        ):
-            prev["form"] += t.form
-            prev["end"] = t.start + t.len
-        else:
-            merged.append({"form": t.form, "tag": t.tag, "end": t.start + t.len})
-
-    return [m["form"] for m in merged]
+    return tokens
 
 
 # ══════════════════════════════════════════════════════════════
@@ -131,7 +119,6 @@ def load_chunk_documents(batch_size: int = 600, min_tokens: int = 95) -> list[Do
       너무 짧은 청크(제목 한 줄, 표 조각 등)는 정보량이 적어 BM25/벡터 검색
       양쪽 모두에서 노이즈로 작용하기 쉬워서 기본적으로 걸러낸다.
     """
-    import chromadb
 
     # [1] Chroma DB에 직접 접속
     client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
@@ -256,8 +243,6 @@ def build_bm25_retriever(
         ]
         target_chunk_ids = [chunk_ids[i] for i in selected_positions]
         target_tokens = [tokenized_corpus[i] for i in selected_positions]
-
-        from rank_bm25 import BM25Okapi
 
         vectorizer = BM25Okapi(target_tokens)  # 이미 토큰화되어 있으므로 Kiwi 없이 즉시 생성됨
         print(
@@ -392,89 +377,7 @@ def get_hybrid_retriever(
         return build_hybrid_retriever(k=k, weights=weights, metadata_filter=metadata_filter)
     return _build_hybrid_retriever_cached(k, weights)
 
-import re
 
-# ══════════════════════════════════════════════════════════════
-# 정확 매칭(숫자/공고번호 등) 추출 & 매칭 점수 계산
-# ══════════════════════════════════════════════════════════════
-
-# 숫자/금액 패턴: "3억 2천만원", "1,234,000원" 처럼 콤마·숫자로 이루어진 덩어리를 잡음
-_NUMBER_PATTERN = re.compile(r"\d[\d,]*")
-# 공고번호 스타일 패턴: "2024-123" 같은 "연도-일련번호" 형태
-_NOTICE_NUMBER_PATTERN = re.compile(r"\d{4}-\d+")
-
-
-def extract_exact_match_terms(query: str) -> list[str]:
-    """쿼리 안에서 '정확히 일치해야 의미 있는' 토큰(숫자, 공고번호 등)만 뽑아낸다.
-
-    예: "국민연금공단 2024-15 공고의 예산액 320,000,000원은?"
-        -> ["2024-15", "320,000,000"] 처럼 추출됨
-    일반 명사(국민연금공단, 예산액 등)는 리랭커/BM25가 이미 잘 처리하므로 여기서는 다루지 않음.
-    """
-    terms = set()
-    terms.update(_NOTICE_NUMBER_PATTERN.findall(query))  # 공고번호부터 먼저 (더 구체적인 패턴)
-    terms.update(_NUMBER_PATTERN.findall(query))
-    # 길이 2 미만인 숫자("1", "3" 등)는 우연히 겹칠 확률이 높은 노이즈라서 제외
-    return [t for t in terms if len(t) >= 2]
-
-
-def exact_match_boost(doc_text: str, exact_terms: list[str]) -> float:
-    """문서 본문에 쿼리의 정확매칭 term이 몇 개나 그대로 들어있는지를 0~1 비율로 반환."""
-    if not exact_terms:
-        return 0.0  # 쿼리에 숫자/공고번호가 아예 없으면 boost 없음 (0으로 fallback)
-    hits = sum(1 for term in exact_terms if term in doc_text)
-    return hits / len(exact_terms)
-
-
-def _min_max_normalize(values: list[float]) -> list[float]:
-    """BM25 원점수처럼 스케일이 들쭉날쭉한 값을 0~1 사이로 맞춰준다.
-    (리랭커 점수와 같은 스케일로 맞춰야 가중합이 의미 있어짐)
-    """
-    if not values:
-        return []
-    lo, hi = min(values), max(values)
-    if hi == lo:  # 모든 값이 같으면 나눗셈 0 방지
-        return [0.0 for _ in values]
-    return [(v - lo) / (hi - lo) for v in values]
-
-
-# ══════════════════════════════════════════════════════════════
-# 점수 융합 (리랭커 + BM25 원점수 + 정확매칭 boost)
-# ══════════════════════════════════════════════════════════════
-def apply_score_fusion(
-    query: str,
-    scored_docs: list[Document],   # rerank_documents가 이미 rerank_score를 채워준 상태
-    top_n: int,
-    weights: tuple[float, float, float] = (0.7, 0.15, 0.15),  # (리랭커, BM25, 정확매칭) 비중
-) -> list[Document]:
-    """세 가지 점수를 가중합해서 최종 top_n개를 다시 뽑는다."""
-    w_rerank, w_bm25, w_exact = weights
-
-    # [1] BM25 원점수 계산 (전체 청크 코퍼스 기준 raw score를 직접 조회)
-    bm25_retriever = build_bm25_retriever(_get_cached_documents(), k=len(scored_docs))
-    tokenized_query = korean_tokenize(query)  # BM25 인덱스와 동일한 토큰화 기준 사용 (매우 중요!)
-    raw_scores = bm25_retriever.vectorizer.get_scores(tokenized_query)
-    chunk_id_to_bm25 = {
-        d.metadata.get("chunk_id"): s
-        for d, s in zip(bm25_retriever.docs, raw_scores)
-    }
-    bm25_values = [chunk_id_to_bm25.get(d.metadata.get("chunk_id"), 0.0) for d in scored_docs]
-    bm25_norm = _min_max_normalize(bm25_values)  # 0~1로 정규화
-
-    # [2] 정확매칭(숫자/공고번호) boost 계산
-    exact_terms = extract_exact_match_terms(query)
-    exact_scores = [exact_match_boost(d.page_content, exact_terms) for d in scored_docs]
-
-    # [3] 가중합해서 최종 점수 산출
-    fused: list[tuple[float, Document]] = []
-    for doc, bm25_s, exact_s in zip(scored_docs, bm25_norm, exact_scores):
-        rerank_s = doc.metadata.get("rerank_score", 0.0)
-        final_score = w_rerank * rerank_s + w_bm25 * bm25_s + w_exact * exact_s
-        doc.metadata["fused_score"] = final_score  # 디버깅/로그 확인용으로 남겨둠
-        fused.append((final_score, doc))
-
-    fused.sort(key=lambda x: x[0], reverse=True)  # 최종 점수 기준 내림차순 정렬
-    return [doc for _, doc in fused[:top_n]]
 # ══════════════════════════════════════════════════════════════
 # 6) 검색 함수 (기존 search_documents와 같은 반환 형태로 맞춤)
 # ══════════════════════════════════════════════════════════════
@@ -482,9 +385,9 @@ def apply_score_fusion(
 def search_documents(
     query: str,
     k: int = 5,
-    candidate_k: int = 30,
+    candidate_k: int = 10,
     metadata_filter: dict | None = None,
-    use_score_fusion: bool = True,
+    # use_score_fusion: bool = True,
 ) -> list[dict[str, Any]]:
     """하이브리드 검색 + 리랭킹을 한 번에 수행한다."""
     t0 = time.perf_counter()
@@ -495,21 +398,19 @@ def search_documents(
     
     # 리랭커(Qwen3-Reranker)로 "후보 전체"를 채점한다.
     #     주의: top_n을 k가 아니라 후보 개수 전체로 줘야 함
-    #     -> fusion 단계에서 모든 후보의 rerank_score가 필요하기 때문
-    # all_reranked = rerank_documents(query, candidate_docs, top_n=len(candidate_docs))
     all_reranked = reranker.rerank_documents(query, candidate_docs, top_n=len(candidate_docs))
     
     t2 = time.perf_counter()
     print(f"[리랭킹 단계] {t2 - t1:.2f}초")
 
     # use_score_fusion에 따라 최종 k개를 결정하는 방식이 갈림
-    if use_score_fusion:
-        docs = apply_score_fusion(query, all_reranked, top_n=k)
-        t3 = time.perf_counter()
-        print(f"[점수 융합 단계] {t3 - t2:.2f}초")
-    else:
-        docs = all_reranked[:k]   # fusion 안 쓰면 리랭커 순서 그대로 top-k
-
+    # if use_score_fusion:
+        # docs = apply_score_fusion(query, all_reranked, top_n=k)
+        # t3 = time.perf_counter()
+        # print(f"[점수 융합 단계] {t3 - t2:.2f}초")
+    # else:
+        # docs = all_reranked[:k]   # fusion 안 쓰면 리랭커 순서 그대로 top-k
+    docs = all_reranked[:k]
     reranked_chunk_ids = [doc.metadata.get("chunk_id") for doc in docs]
     print(f"[리랭킹 결과 청크 ID] {reranked_chunk_ids}")
 

@@ -9,6 +9,8 @@ import torch
 from dotenv import load_dotenv
 from langchain_core.documents import Document
 
+from sentence_transformers import CrossEncoder
+
 load_dotenv()
 
 RERANKER_MODEL = "Qwen/Qwen3-Reranker-0.6B"
@@ -56,8 +58,6 @@ class Reranker:
         # __init__은 파이썬이 자동으로 또 호출하지만 모델을 중복 로드하면 안 되므로 여기서 막는다.
         if self._initialized:
             return
-
-        from sentence_transformers import CrossEncoder
 
         print(f"[Reranker] '{model_name}' 로딩 중... (device={device})")
         self.model = CrossEncoder(
