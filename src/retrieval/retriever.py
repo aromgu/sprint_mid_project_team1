@@ -44,7 +44,7 @@ EMBEDDINGS_MODEL = os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-small")
 CHROMA_COLLECTION = "ai11_policy_advanced_v2_1024"
 CHROMA_PERSIST_DIR = "/home/data/chroma_advanced_v2_1024"
 BM25_INDEX_PATH = "/home/data/bm25_advanced_v2_1024/bm25_index.pkl"
-DEFAULT_WEIGHTS: tuple[float, float] = (0.3, 0.7)
+DEFAULT_WEIGHTS: tuple[float, float] = (0.7, 0.3)
 
 def measure_time(func):
     """함수 실행 시간을 재서 출력해주는 데코레이터.
@@ -76,9 +76,7 @@ def _format_elapsed(seconds: float) -> str:
 # 1) 한국어 토큰화 (BM25의 핵심)
 # ══════════════════════════════════════════════════════════════
 _kiwi = Kiwi(num_workers=1)
-# _kiwi.add_user_word("이러닝", "NNG", score=0.0)
 
-# 팀 회의에서 합의된 BM25 토큰화 정책
 # - 품사(POS)로는 전혀 걸러내지 않는다 -> 조사("은/는/이/가" 등), 어미("-다", "-고" 등)도 전부 토큰으로 남김
 # - 복합명사 병합도 하지 않는다 -> Kiwi가 쪼갠 형태소 단위 그대로 사용
 # - 대신 각 형태소의 표면형(form)에서 "문자/숫자/하이픈"이 아닌 특수문자만 제거
@@ -384,7 +382,7 @@ def get_hybrid_retriever(
 @measure_time
 def search_documents(
     query: str,
-    k: int = 5,
+    k: int = 10,
     candidate_k: int = 10,
     metadata_filter: dict | None = None,
     # use_score_fusion: bool = True,
