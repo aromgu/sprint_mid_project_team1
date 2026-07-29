@@ -1,0 +1,7 @@
+{
+  "method": "single-call RAGAS-compatible LLM judge (not official ragas package output)",
+  "model": "gpt-4o-mini",
+  "evaluated_questions": 104,
+  "faithfulness": 0.8894230769230769,
+  "answer_relevancy": 0.9091346153846154
+}

@@ -2,6 +2,8 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/ui",
+  fullyParallel: true,
+  workers: process.env.CI ? 2 : 4,
   outputDir: "./test-results",
   reporter: [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],
   expect: { toHaveScreenshot: { maxDiffPixels: 200 } },

@@ -21,11 +21,18 @@ GET  /api/analysis/{document_id}/eligibility
 GET  /api/analysis/{document_id}/deliverables
 GET  /api/analysis/{document_id}/requirements
 POST /api/analysis/{document_id}/ask
+POST /api/analysis/{document_id}/ask/stream
+DELETE /api/analysis/{document_id}/conversation/{conversation_id}
 GET  /api/state/{document_id}
 PATCH /api/state/{document_id}/eligibility/{item_id}
 PATCH /api/state/{document_id}/deliverable/{item_id}
 ```
 
-분석 API는 OpenAI 호출이 필요하다. `OPENAI_API_KEY`는 `.env` 또는 `.env.local`에서
-읽으며 저장소에 커밋하지 않는다. API 기본 모델은 `configs/generation.yaml`의
-`gpt-5-nano`다.
+Q&A와 평가 문서의 Workspace 검색은 Main Advanced Chroma index를 사용한다.
+브라우저는 `conversation_id`를 ask 요청에 전달하며 backend는 문서/provider별
+`BidMateRAGSession`을 메모리에 유지한다.
+
+개발 및 smoke test는 OpenAI `gpt-5-nano`, 데모 UI 기본 선택은
+`gemini-3.5-flash-lite`다. Gemini 호출이 실패하면 기본적으로 OpenAI로 fallback한다.
+`OPENAI_API_KEY`와 `GEMINI_API_KEY`는 `.env` 또는 `.env.local`에서 읽으며 저장소에
+커밋하지 않는다. 모델 설정은 `configs/main_advanced_rag.yaml`에서 관리한다.

@@ -68,9 +68,12 @@ def requirements(document_id: str, request: Request):
 
 
 @router.post("/ask")
-def ask(document_id: str, payload: AskRequest, request: Request):
+async def ask(document_id: str, payload: AskRequest, request: Request):
     try:
-        return client(request).answer(document_id, payload.question, payload.chat_history, payload.provider)
+        return await client(request).answer(
+            document_id, payload.question, payload.chat_history,
+            payload.provider, payload.conversation_id,
+        )
     except Exception as exc:
         logger.exception("answer failed for document_id=%s", document_id)
         raise HTTPException(status_code=502, detail=f"answer failed: {type(exc).__name__}") from exc
@@ -80,8 +83,9 @@ def ask(document_id: str, payload: AskRequest, request: Request):
 async def ask_stream(document_id: str, payload: AskRequest, request: Request):
     """SSE-compatible MVP stream. The final structured answer is chunked for the UI."""
     try:
-        result = await asyncio.to_thread(
-            client(request).answer, document_id, payload.question, payload.chat_history, payload.provider
+        result = await client(request).answer(
+            document_id, payload.question, payload.chat_history,
+            payload.provider, payload.conversation_id,
         )
     except Exception as exc:
         logger.exception("stream answer failed for document_id=%s", document_id)
@@ -96,3 +100,13 @@ async def ask_stream(document_id: str, payload: AskRequest, request: Request):
         yield f"data: {json.dumps({'type': 'done', 'result': result.model_dump()}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(events(), media_type="text/event-stream")
+
+
+@router.delete("/conversation/{conversation_id}")
+def reset_conversation(document_id: str, conversation_id: str, request: Request):
+    """Reset one browser conversation for the selected document."""
+    return {
+        "conversation_id": conversation_id,
+        "document_id": document_id,
+        "removed_sessions": client(request).reset_conversation(conversation_id, document_id),
+    }

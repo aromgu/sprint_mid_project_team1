@@ -28,4 +28,15 @@ nav { padding: 14px 0; }
 .timeline, .cards { margin-top: 0; }
 .card { border-radius: 10px; }
 .evidence { padding: 14px; gap: 10px; }
+
 @media(max-width:1000px){.layout{grid-template-columns:150px minmax(0,1fr)}.evidence,.evidenceResize{display:none}.summaryGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* A collapsed file rail leaves enough room for source evidence on tablets. */
+@media (min-width: 861px) and (max-width: 1000px) {
+  .layout,
+  .layout.fileListCollapsed {
+    grid-template-columns: 42px minmax(0, 1fr) 8px var(--evidence-width, 360px);
+  }
+  .evidence { display: block; }
+  .evidenceResize { display: block; }
+}

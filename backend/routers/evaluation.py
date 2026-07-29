@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+import gzip
+import re
 from collections import Counter
 from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse
 
-from src.search.loader import file_fingerprint
+from src.main_rag.answerability import classify_answer_status
 
 router = APIRouter(prefix="/api/evaluation", tags=["evaluation"])
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -19,81 +21,79 @@ def load_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def load_jsonl_gzip(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    with gzip.open(path, "rt", encoding="utf-8") as stream:
+        return [json.loads(line) for line in stream if line.strip()]
+
+
 def chunk_index_summary() -> dict:
-    chunks_path = PROJECT_ROOT / "data" / "processed" / "chunks.jsonl"
-    pages_path = PROJECT_ROOT / "data" / "processed" / "pages.jsonl"
-    chunks = load_jsonl(chunks_path)
-    pages = load_jsonl(pages_path)
+    chunks_path = PROJECT_ROOT / "data" / "main_advanced" / "chunks" / "chunks_advanced.jsonl.gz"
+    report_path = PROJECT_ROOT / "reports" / "main_advanced" / "indexing_report.json"
+    live_path = PROJECT_ROOT / "reports" / "main_advanced" / "live_index_status.json"
+    chunks = load_jsonl_gzip(chunks_path)
     if not chunks:
         return {"status": "missing"}
-
     chunk_ids = [item["chunk_id"] for item in chunks]
-    expected_headings = {
-        (page["document_id"], heading)
-        for page in pages for heading in page.get("headings", []) if heading.strip()
-    }
-    indexed_headings = {
-        (chunk["document_id"], heading)
-        for chunk in chunks for heading in chunk.get("section_path", []) if heading.strip()
-    }
-    expected_requirements = {
-        (page["document_id"], requirement)
-        for page in pages for requirement in page.get("requirement_ids", [])
-    }
-    indexed_requirements = {
-        (chunk["document_id"], requirement)
-        for chunk in chunks for requirement in chunk.get("requirement_ids", [])
-    }
-    fingerprint = file_fingerprint(chunks_path)
-    index_meta = []
-    for path in (PROJECT_ROOT / "data" / "indexes").glob("*.json"):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if "chunks_sha256" in payload and "chunk_count" in payload:
-            index_meta.append({"name": path.stem, **payload})
-    current_indexes = [
-        item for item in index_meta
-        if item["chunks_sha256"] == fingerprint and item["chunk_count"] == len(chunks)
-    ]
-    dense_current = any(item["name"].startswith("dense_") for item in current_indexes)
-    bm25_current = any(item["name"].startswith("bm25_") for item in current_indexes)
+    report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
+    live = json.loads(live_path.read_text(encoding="utf-8")) if live_path.exists() else {}
+    dense = report.get("dense") or {}
+    indexed_count = live.get("collection_count", dense.get("final_collection_count"))
+    dense_current = indexed_count == len(chunks)
+    section_count = sum(bool(str(item.get("section_path") or "").strip()) for item in chunks)
+    requirement_count = sum(bool(re.search(r"\b[A-Z]{2,5}-\d{2,5}\b", item.get("raw_text") or "")) for item in chunks)
 
     return {
-        "status": "ready" if dense_current and bm25_current else "stale_index",
+        "status": "ready" if dense_current else "stale_index",
         "chunk_count": len(chunks),
         "average_tokens": round(sum(item["token_count"] for item in chunks) / len(chunks), 1),
-        "heading_preservation": round(len(expected_headings & indexed_headings) / len(expected_headings), 4) if expected_headings else None,
-        "requirement_preservation": round(len(expected_requirements & indexed_requirements) / len(expected_requirements), 4) if expected_requirements else None,
+        "heading_preservation": round(section_count / len(chunks), 4),
+        "requirement_preservation": round(requirement_count / len(chunks), 4),
         "embedding_missing": 0 if dense_current else len(chunks),
         "duplicate_chunk_ids": sum(count - 1 for count in Counter(chunk_ids).values() if count > 1),
-        "bm25_index_current": bm25_current,
+        "bm25_index_current": False,
         "dense_index_current": dense_current,
+        "collection_name": live.get("collection_name", dense.get("collection_name")),
+        "embedding_model": live.get("embedding_model", dense.get("embedding_model")),
+        "document_count": (report.get("source_document_count") or 0) + (live.get("upload_document_count") or 0),
     }
 
 
 def golden_v3_evaluation() -> dict | None:
-    base = PROJECT_ROOT / "reports" / "evaluation_v3"
+    base = PROJECT_ROOT / "reports" / "main_advanced"
     golden_path = PROJECT_ROOT / "goldenset" / "golden_set_v3.jsonl"
-    answers_path = base / "answers.jsonl"
-    ragas_path = base / "ragas.json"
-    chunks_path = PROJECT_ROOT / "data" / "eval_corpus_v3" / "processed" / "chunks.jsonl"
+    answers_path = base / "answers_top10.jsonl"
+    ragas_path = base / "ragas_top10.json"
+    chunks_path = PROJECT_ROOT / "data" / "main_advanced" / "chunks" / "chunks_advanced.jsonl.gz"
     if not (golden_path.exists() and answers_path.exists() and ragas_path.exists()):
         return None
     golden = {item["question_id"]: item for item in load_jsonl(golden_path)}
     answers = {item["question_id"]: item for item in load_jsonl(answers_path)}
-    chunks = {item["chunk_id"]: item for item in load_jsonl(chunks_path)}
+    chunks = {item["chunk_id"]: item for item in load_jsonl_gzip(chunks_path)}
     ragas_payload = json.loads(ragas_path.read_text(encoding="utf-8"))
     scores = {item["question_id"]: item for item in ragas_payload.get("details", [])}
     details = []
     for question_id, item in golden.items():
         answer = answers.get(question_id, {})
         score = scores.get(question_id, {})
+        answer_status = answer.get("answer_status") or (
+            "answered" if answer.get("is_answerable") else "unanswerable"
+        )
+        # Older result files can contain an `answered` label even when the answer
+        # explicitly says that one requested fact could not be confirmed. Apply the
+        # current classifier when serving historical results without rewriting the
+        # immutable evaluation artifact.
+        if answer_status == "answered":
+            detected_status = classify_answer_status(
+                answer.get("answer", ""), answer.get("citations", [])
+            )
+            if detected_status != "answered":
+                answer_status = detected_status
         citations = []
         for citation in answer.get("citations", []):
             chunk = chunks.get(citation.get("chunk_id"), {})
-            citations.append({**citation, "excerpt": chunk.get("text", "")[:1200]})
+            citations.append({**citation, "excerpt": (chunk.get("raw_text") or chunk.get("embedding_text") or "")[:1200]})
         details.append({
             "question_id": question_id,
             "question": item.get("question", ""),
@@ -101,7 +101,8 @@ def golden_v3_evaluation() -> dict | None:
             "difficulty": item.get("difficulty"),
             "query_type": item.get("query_type"),
             "expected_answerable": item.get("answerable"),
-            "predicted_answerable": answer.get("is_answerable"),
+            "answer_status": answer_status,
+            "predicted_answerable": answer_status != "unanswerable",
             "ground_truth": item.get("ground_truth", ""),
             "answer": answer.get("answer", ""),
             "citations": citations,
@@ -116,6 +117,18 @@ def golden_v3_evaluation() -> dict | None:
         for row in details
     )
     no_citations = sum(not row["citations"] for row in details)
+    relevancy_by_status = {}
+    for status in ("answered", "partially_answered", "unanswerable"):
+        values = [
+            row["answer_relevancy"]
+            for row in details
+            if row["answer_status"] == status and isinstance(row["answer_relevancy"], (int, float))
+        ]
+        relevancy_by_status[status] = {
+            "count": sum(row["answer_status"] == status for row in details),
+            "scored_count": len(values),
+            "average": sum(values) / len(values) if values else None,
+        }
     latencies = sorted(
         float(item.get("search_latency_ms") or 0) + float(item.get("generation_latency_ms") or 0)
         for item in answers.values()
@@ -123,7 +136,7 @@ def golden_v3_evaluation() -> dict | None:
     p95_index = min(len(latencies) - 1, int(len(latencies) * 0.95)) if latencies else 0
     return {
         "run": {
-            "name": "Golden Set v3 · 1차 평가",
+            "name": "Main Advanced RAG · Golden Set v3 · Top-10",
             "generation_model": answers[next(iter(answers))].get("model") if answers else None,
             "evaluation_model": ragas_payload.get("model"),
             "question_count": len(details),
@@ -131,7 +144,10 @@ def golden_v3_evaluation() -> dict | None:
             "scored_question_count": len(scores),
             "status": "complete" if len(details) == len(answers) == len(scores) else "partial",
         },
-        "summary": ragas_payload.get("summary", {}),
+        "summary": {
+            **ragas_payload.get("summary", {}),
+            "answer_relevancy_by_status": relevancy_by_status,
+        },
         "low_score_counts": {
             "faithfulness_below_05": low_faithfulness,
             "relevancy_below_03": low_relevancy,
@@ -148,24 +164,22 @@ def golden_v3_evaluation() -> dict | None:
             "estimated_cost_usd": sum(float(item.get("estimated_cost_usd") or 0) for item in answers.values()),
         },
         "details": details,
-        "report_url": "/api/evaluation/report/ragas-1st",
+        "report_url": "/api/evaluation/report/main-advanced-p1",
     }
 
 
 @router.get("/summary")
 def summary():
-    path = PROJECT_ROOT / "reports" / "retrieval" / "summary.json"
-    ragas_path = PROJECT_ROOT / "reports" / "evaluation" / "ragas.json"
-    v3_retrieval_path = PROJECT_ROOT / "reports" / "evaluation_v3" / "retrieval_summary.json"
-    v3_answer_path = PROJECT_ROOT / "reports" / "evaluation_v3" / "answer_summary.json"
+    v3_retrieval_path = PROJECT_ROOT / "reports" / "main_advanced" / "retrieval_summary.json"
+    v3_answer_path = PROJECT_ROOT / "reports" / "main_advanced" / "answer_summary_top10.json"
     v3_ragas = golden_v3_evaluation()
     chunk_index = chunk_index_summary()
     return {
-        "status": "ready" if path.exists() or ragas_path.exists() or v3_retrieval_path.exists() or chunk_index.get("status") == "ready" else "not_run",
+        "status": "ready" if v3_retrieval_path.exists() and v3_answer_path.exists() and v3_ragas else "not_run",
         "chunk_index": chunk_index,
-        "retrieval": json.loads(path.read_text(encoding="utf-8")) if path.exists() else [],
-        "ragas": json.loads(ragas_path.read_text(encoding="utf-8")) if ragas_path.exists() else [],
-        "golden_v3_retrieval": json.loads(v3_retrieval_path.read_text(encoding="utf-8")) if v3_retrieval_path.exists() else [],
+        "retrieval": [],
+        "ragas": [],
+        "golden_v3_retrieval": [json.loads(v3_retrieval_path.read_text(encoding="utf-8"))] if v3_retrieval_path.exists() else [],
         "golden_v3_answers": json.loads(v3_answer_path.read_text(encoding="utf-8"))["summary"] if v3_answer_path.exists() else None,
         "golden_v3_ragas": v3_ragas,
     }
@@ -176,4 +190,12 @@ def ragas_first_report():
     path = PROJECT_ROOT / "reports" / "evaluation_v3" / "ragas_1st_score_analysis.md"
     if not path.exists():
         return "# RAGAS 1차 분석\n\n보고서가 아직 생성되지 않았습니다."
+    return path.read_text(encoding="utf-8")
+
+
+@router.get("/report/main-advanced-p1", response_class=PlainTextResponse)
+def main_advanced_report():
+    path = PROJECT_ROOT / "reports" / "main_advanced" / "P1_REPORT.md"
+    if not path.exists():
+        return "# Main Advanced P1\n\n보고서가 아직 생성되지 않았습니다."
     return path.read_text(encoding="utf-8")

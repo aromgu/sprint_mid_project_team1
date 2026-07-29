@@ -9,21 +9,34 @@ from typing import Any, TypeVar
 from src.generation.models import ModelAnswer
 from src.generation.openai_generator import OpenAIRAGService
 from src.search.service import SearchService
+from src.search.models import SearchChunk, SearchResult
+from src.main_rag.retrieval.advanced_retriever import AdvancedRetriever
+from src.main_rag.runtime import MainAdvancedSessionManager
+from src.main_rag.answerability import classify_answer_status, is_answerable_status
 
 from backend.models import (
     ActionItem, DeliverableItem, DeliverablesResponse, EligibilityItem,
     EligibilityResponse, Evidence, OverviewResponse, RequirementItem,
     RequirementsResponse, RiskItem, RisksResponse,
 )
+from src.generation.models import AnswerResponse, Citation
 
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
 
 
 class RAGClient:
-    def __init__(self, search_service: SearchService | None = None, generator: OpenAIRAGService | None = None) -> None:
+    def __init__(
+        self,
+        search_service: SearchService | None = None,
+        generator: OpenAIRAGService | None = None,
+        advanced_retriever: AdvancedRetriever | None = None,
+        session_manager: MainAdvancedSessionManager | None = None,
+    ) -> None:
         self.search = search_service or SearchService()
         self.generator = generator or OpenAIRAGService(search_service=self.search)
+        self.advanced_retriever = advanced_retriever or AdvancedRetriever()
+        self.sessions = session_manager or MainAdvancedSessionManager(retriever=self.advanced_retriever)
         self._analysis_cache: dict[tuple[str, str], Any] = {}
 
     @staticmethod
@@ -37,12 +50,46 @@ class RAGClient:
         )
 
     def _retrieve(
-        self, document_id: str, query: str, top_k: int = 5,
+        self, document_id: str, query: str, top_k: int = 10,
         content_types: set[str] | None = None,
     ):
-        results = self.search.search(
-            query, top_k=top_k, document_ids={document_id}, content_types=content_types,
+        documents = self.advanced_retriever.search_documents(
+            query, top_k=top_k, document_id=document_id,
         )
+        # Preserve compatibility for documents uploaded before incremental
+        # Advanced indexing was introduced.
+        if not documents and not document_id.startswith("eval_"):
+            return self.search.search(
+                query, top_k=top_k, document_ids={document_id}, content_types=content_types,
+            )
+        results = []
+        for rank, document in enumerate(documents, 1):
+            metadata = document.get("metadata") or {}
+            content_type = str(metadata.get("content_type") or "text")
+            if content_types and content_type not in content_types:
+                continue
+            section = metadata.get("section_path") or []
+            if isinstance(section, str):
+                section = [section] if section.strip() else []
+            requirement_ids = re.findall(r"\b[A-Z]{2,5}-\d{2,5}\b", document.get("text") or "")
+            page_start = int(document.get("page") or metadata.get("page_start") or 1)
+            page_end = int(metadata.get("page_end") or page_start)
+            chunk = SearchChunk(
+                chunk_id=str(document["chunk_id"]),
+                document_id=str(metadata.get("document_id") or document_id),
+                document_title=str(document.get("file_nm") or metadata.get("project_name") or document_id),
+                page_start=page_start,
+                page_end=page_end,
+                section_path=list(section),
+                requirement_ids=list(dict.fromkeys(requirement_ids)),
+                content_type=content_type,
+                text=str(document.get("text") or ""),
+                token_count=int(metadata.get("token_count") or 0),
+            )
+            results.append(SearchResult(
+                chunk=chunk, rank=rank, score=float(document.get("score") or 0),
+                retriever="main_advanced_dense",
+            ))
         return results
 
     def _retrieve_deliverables(self, document_id: str) -> list:
@@ -64,7 +111,7 @@ class RAGClient:
 
     def _parse_structured(self, context: str, schema: type[T], prompt: str) -> T:
         """Run Workspace card extraction with the configured default provider."""
-        provider = os.getenv("RAG_WORKSPACE_LLM_PROVIDER", "gemini-lite")
+        provider = os.getenv("RAG_WORKSPACE_LLM_PROVIDER", "openai")
         settings = self.generator.config[provider]
         client = self.generator._get_client(provider)
         evidence_instruction = (
@@ -106,7 +153,30 @@ class RAGClient:
         for field in ("action_items", "risks", "items"):
             for item in getattr(value, field, []) or []:
                 labels = getattr(item, "source_ids", []) or []
-                result = next((source_map[label] for label in labels if label in source_map), None)
+                normalized_labels = [str(label).strip().strip("[]").strip() for label in labels]
+                result = next(
+                    (source_map[label] for label in normalized_labels if label in source_map),
+                    None,
+                )
+                if result is None and source_map:
+                    # Structured models occasionally omit source_ids even when
+                    # the card text came directly from the supplied context.
+                    # Recover the closest retrieved chunk so UI cards never
+                    # become dead ends without silently inventing page data.
+                    item_tokens = set(re.findall(
+                        r"[0-9A-Za-z가-힣]{2,}",
+                        f"{getattr(item, 'title', '')} {getattr(item, 'name', '')} {getattr(item, 'description', '')}".casefold(),
+                    ))
+                    candidates = list(source_map.values())
+                    result = max(
+                        candidates,
+                        key=lambda candidate: (
+                            len(item_tokens & set(re.findall(
+                                r"[0-9A-Za-z가-힣]{2,}", candidate.chunk.text.casefold(),
+                            ))),
+                            -candidate.rank,
+                        ),
+                    )
                 item.evidence = cls._evidence(result) if result is not None else None
 
     @staticmethod
@@ -116,10 +186,13 @@ class RAGClient:
 
     @classmethod
     def _fallback_deliverables(cls, results: list) -> list[DeliverableItem]:
-        items = []
-        for index, result in enumerate(results[:6], 1):
+        items_by_title: dict[str, DeliverableItem] = {}
+        for index, result in enumerate(results, 1):
             text = result.chunk.text
             section = next((part for part in reversed(result.chunk.section_path) if part.strip()), "")
+            parsed = cls._parse_requirement_table(text)
+            title = cls._deliverable_title(text) or parsed["title"] or section[:80] or f"제출물·산출물 검토 {index}"
+            description = parsed["description"] or cls._clean_card_summary(text)
             quantity_match = re.search(r"(\d+)\s*(?:부|식|개)", text)
             format_name = "PDF/전자파일" if re.search(r"PDF|전자(?:파일|문서|제출)", text, re.I) else (
                 "서면" if re.search(r"서면|인쇄|책자", text) else "형식 확인 필요"
@@ -128,43 +201,140 @@ class RAGClient:
                 r"착수|수행계획|월간|주간|중간보고|최종보고|완료보고|산출정보|산출물|성과품|결과물|매뉴얼|소스코드|납품|인계",
                 f"{section} {text}",
             ))
-            items.append(DeliverableItem(
-                id=f"deliverable-review-{index}",
-                name=section[:80] or f"제출물·산출물 검토 {index}",
+            item = DeliverableItem(
+                id=parsed["id"] or f"deliverable-review-{index}",
+                name=title,
                 kind="project_deliverable" if project_output else "bid_submission",
-                description=cls._excerpt(result),
+                description=description,
                 format=format_name,
                 quantity=int(quantity_match.group(1)) if quantity_match else 1,
                 requires_seal=bool(re.search(r"날인|직인", text)),
                 requires_original=bool(re.search(r"원본", text)),
                 status="pending",
                 evidence=cls._evidence(result),
-            ))
-        return items
+            )
+            key = re.sub(r"\s+", "", title).casefold()
+            previous = items_by_title.get(key)
+            if previous is None or len(item.description) > len(previous.description):
+                items_by_title[key] = item
+        return list(items_by_title.values())[:8]
+
+    @staticmethod
+    def _deliverable_title(text: str) -> str:
+        names = (
+            "사업수행계획서", "착수신고서", "입찰가격제안서", "가격제안서",
+            "제안서 원본", "제안서 사본", "발표자료", "최종완료보고서", "완료보고서",
+            "최종보고서", "중간보고서", "월간보고서", "주간보고서", "수시보고서",
+            "교육계획서", "교육자료", "사용자 매뉴얼", "관리자 매뉴얼", "운영자 매뉴얼",
+            "운영지침서", "소스코드", "보안서약서", "실적증명서",
+            "신용평가등급확인서", "기술적용계획표",
+        )
+        return next((name for name in names if name in text), "")
+
+    @staticmethod
+    def _clean_card_summary(text: str, limit: int = 260) -> str:
+        cells = []
+        boilerplate = (
+            "요구사항 분류", "요구사항 고유번호", "요구사항 명칭", "요구사항 상세설명",
+            "산출정보", "관련요구사항", "---",
+        )
+        for raw_line in text.splitlines():
+            for cell in raw_line.split("|"):
+                value = re.sub(r"\s+", " ", cell).strip(" -:\t")
+                if value and not any(value == label for label in boilerplate):
+                    cells.append(value)
+        summary = " ".join(cells)
+        summary = re.sub(r"\s+/\s+", " ", summary)
+        summary = re.sub(r"\s+", " ", summary).strip()
+        return summary[:limit] + ("…" if len(summary) > limit else "")
 
     @classmethod
     def _fallback_requirements(cls, results: list) -> list[RequirementItem]:
         category_by_prefix = {
             "SFR": "functional", "PER": "performance", "SER": "security",
-            "QUR": "performance", "PMR": "personnel", "COR": "contract",
+            "QUR": "quality", "SIR": "interface", "DAR": "data", "TER": "quality",
+            "PMR": "project", "PSR": "operation", "COR": "contract",
         }
-        items = []
-        for index, result in enumerate(results[:8], 1):
-            requirement_id = result.chunk.requirement_ids[0] if result.chunk.requirement_ids else f"review-{index}"
+        items_by_id: dict[str, RequirementItem] = {}
+        for index, result in enumerate(results, 1):
+            parsed = cls._parse_requirement_table(result.chunk.text)
+            requirement_id = parsed["id"] or (
+                result.chunk.requirement_ids[0] if result.chunk.requirement_ids else f"review-{index}"
+            )
             prefix = requirement_id.split("-", 1)[0].upper()
             section = next((part for part in reversed(result.chunk.section_path) if part.strip()), "")
-            items.append(RequirementItem(
+            title = parsed["title"] or section[:100] or f"요구사항 {requirement_id}"
+            description = parsed["description"] or cls._excerpt(result)
+            item = RequirementItem(
                 id=requirement_id,
                 category=category_by_prefix.get(prefix, "operation"),
-                title=section[:100] or f"요구사항 {requirement_id}",
-                description=cls._excerpt(result),
+                title=title,
+                description=description,
                 priority="medium",
                 review_status="pending",
                 evidence=cls._evidence(result),
-            ))
-        return items
+            )
+            previous = items_by_id.get(requirement_id)
+            if previous is None or len(item.description) > len(previous.description):
+                items_by_id[requirement_id] = item
+        return list(items_by_id.values())[:8]
 
-    def _extract(self, document_id: str, query: str, schema: type[T], prompt: str, top_k: int = 5) -> T:
+    @staticmethod
+    def _parse_requirement_table(text: str) -> dict[str, str]:
+        """Extract one requirement from a markdown/plain-text RFP table chunk."""
+        requirement_id = next(iter(re.findall(r"\b[A-Z]{2,5}-\d{2,5}\b", text)), "")
+        lines: list[str] = []
+        for raw_line in text.splitlines():
+            for cell in raw_line.split("|"):
+                value = re.sub(r"\s+", " ", cell).strip(" -:\t")
+                if not value or re.fullmatch(r"[-: ]{3,}", value):
+                    continue
+                lines.append(value)
+
+        def strip_category(value: str) -> str:
+            return re.sub(
+                r"^(?:기능요구사항|성능|보안|품질|인터페이스|데이터|테스트|제약사항|프로젝트관리|프로젝트 지원)\s*:\s*",
+                "", value,
+            ).strip()
+
+        def value_after(marker: str) -> str:
+            for position, value in enumerate(lines):
+                if marker not in value:
+                    continue
+                for candidate in lines[position + 1:]:
+                    candidate = strip_category(candidate)
+                    if not candidate or candidate == requirement_id:
+                        continue
+                    if any(label in candidate for label in (
+                        "요구사항 분류", "요구사항 고유번호", "요구사항 명칭",
+                        "요구사항 상세설명", "산출정보", "관련요구사항",
+                    )):
+                        continue
+                    return candidate
+            return ""
+
+        title = value_after("요구사항 명칭")
+        detail_start = next((
+            index for index, value in enumerate(lines)
+            if re.sub(r"[\s/]", "", value) in {"세부", "내용", "세부내용"}
+        ), None)
+        detail_lines: list[str] = []
+        if detail_start is not None:
+            for value in lines[detail_start + 1:]:
+                if "산출정보" in value or "관련요구사항" in value:
+                    break
+                value = strip_category(value)
+                if value and re.sub(r"[\s/]", "", value) not in {"정의", "세부", "내용", "세부내용"}:
+                    detail_lines.append(value)
+        definition = value_after("정의")
+        description = " ".join(detail_lines).strip() or definition
+        # Advanced table rendering uses a spaced slash as a visual line break.
+        # Preserve real terms such as "백업/복구", which have no surrounding spaces.
+        description = re.sub(r"\s+/\s+", " ", description)
+        description = re.sub(r"\s+", " ", description).strip()
+        return {"id": requirement_id, "title": title, "description": description}
+
+    def _extract(self, document_id: str, query: str, schema: type[T], prompt: str, top_k: int = 10) -> T:
         cache_key = (document_id, schema.__name__)
         if cache_key in self._analysis_cache:
             return self._analysis_cache[cache_key].model_copy(deep=True)
@@ -179,20 +349,64 @@ class RAGClient:
         self._analysis_cache[cache_key] = parsed
         return parsed.model_copy(deep=True)
 
-    def answer(
+    async def answer(
         self, document_id: str, question: str,
         chat_history: list[dict[str, str]] | None = None, provider: str = "openai",
-    ):
-        history_key = "|".join(f"{item.get('role')}:{item.get('content')}" for item in (chat_history or [])[-6:])
-        cache_key = (document_id, f"answer:{provider}:{history_key}:{question.strip()}")
-        if cache_key in self._analysis_cache:
-            return self._analysis_cache[cache_key].model_copy(deep=True)
-        result = self.generator.answer(
-            question, document_ids={document_id}, chat_history=(chat_history or [])[-6:],
-            provider=provider,
+        conversation_id: str = "default",
+    ) -> AnswerResponse:
+        del chat_history  # Main session owns the authoritative conversation state.
+        entry = self.sessions.get(conversation_id, document_id, provider)
+        try:
+            async with entry.lock:
+                result = await entry.service.answer(question, document_id=document_id, top_k=10)
+        except Exception:
+            fallback_enabled = os.getenv("RAG_OPENAI_FALLBACK", "true").casefold() in {"1", "true", "yes", "on"}
+            if provider == "openai" or not fallback_enabled:
+                raise
+            logger.warning("%s generation failed; retrying with OpenAI fallback", provider, exc_info=True)
+            entry = self.sessions.get(conversation_id, document_id, "openai")
+            async with entry.lock:
+                result = await entry.service.answer(question, document_id=document_id, top_k=10)
+        evidence = result.get("evidence") or []
+        usage = result.get("_usage") or {}
+        citations = [Citation(
+            source_id=str(index),
+            chunk_id=str(item["chunk_id"]),
+            document_id=document_id,
+            document_name=str(item.get("source") or document_id),
+            page_start=int(item.get("page") or 1),
+            page_end=int(item.get("page") or 1),
+            requirement_ids=re.findall(r"\b[A-Z]{2,5}-\d{2,5}\b", str(item.get("quote") or "")),
+            quote=str(item.get("quote") or "") or None,
+            score=float(item.get("score")) if item.get("score") is not None else None,
+        ) for index, item in enumerate(evidence, 1)]
+        answer = str(result.get("answer") or "")
+        answer_status = classify_answer_status(
+            answer,
+            evidence,
+            needs_clarification=bool(result.get("needs_clarification")),
         )
-        self._analysis_cache[cache_key] = result
-        return result.model_copy(deep=True)
+        return AnswerResponse(
+            question=question,
+            answer=answer,
+            is_answerable=is_answerable_status(answer_status),
+            answer_status=answer_status,
+            caveat=result.get("clarification_question"),
+            confidence=float(result.get("confidence")) if result.get("confidence") is not None else None,
+            conflicts=list(result.get("conflicts") or []),
+            citations=citations,
+            retrieved_chunk_ids=list(result.get("retrieved_chunk_ids") or []),
+            retriever="main_advanced_dense",
+            model=str(entry.service.session.model),
+            search_latency_ms=float((result.get("latency") or {}).get("retrieval_seconds", 0)) * 1000,
+            generation_latency_ms=float((result.get("latency") or {}).get("generation_seconds", 0)) * 1000,
+            input_tokens=usage.get("input_tokens"),
+            output_tokens=usage.get("output_tokens"),
+            estimated_cost_usd=None,
+        )
+
+    def reset_conversation(self, conversation_id: str, document_id: str | None = None) -> int:
+        return self.sessions.reset(conversation_id, document_id)
 
     def overview(self, document_id: str) -> OverviewResponse:
         cache_key = (document_id, "OverviewResponse")

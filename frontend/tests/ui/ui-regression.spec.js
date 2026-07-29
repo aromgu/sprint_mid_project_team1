@@ -43,6 +43,29 @@ test("Overview 요약카드가 업무 탭으로 이동한다", async ({ page }) 
   await expect(page.getByPlaceholder(/실격 조건과 필수 제출물/)).toBeVisible();
 });
 
+test("Overview와 Go-NoGo 카드가 우측 원문에 연결된다", async ({ page }) => {
+  await page.route("**/api/analysis/**/risks", route => route.fulfill({
+    status: 200, contentType: "application/json", body: JSON.stringify({
+      document_id: "ui-001", risks: [
+        ...responses.risks.risks,
+        { id: "risk-2", type: "deduction", severity: "warning", title: "평가 감점", description: "조건 미충족 시 감점", user_status: "unchecked", evidence: { ...evidence, page_number: 8, quote: "감점 조항 근거" } },
+      ],
+    }),
+  }));
+  await page.goto("/");
+  await page.locator(".overview .summaryCard.severity-critical").click();
+  await expect(page.locator(".evidence").getByText("테스트 RFP")).toBeVisible();
+  await expect(page.locator(".evidence blockquote")).toBeHidden();
+  await expect(page.locator(".pageViewer").getByText("원문 페이지")).toBeVisible();
+  await page.getByRole("button", { name: "Go / No-Go", exact: true }).click();
+  await page.locator(".riskRatioSummary .disqualificationSummary").click();
+  await expect(page.locator(".evidence blockquote")).toBeHidden();
+  await page.locator(".riskRatioSummary .deductionSummary").click();
+  await expect(page.locator(".evidence").getByText(/^p\.8/)).toBeVisible();
+  await page.locator(".goNoGoView .cardBody").first().click();
+  await expect(page.locator(".evidence").getByText(/실제 원문 영역/)).toBeVisible();
+});
+
 test("파일 목록을 접고 이름 검색과 날짜·이름 정렬만 제공한다", async ({ page }) => {
   await page.goto("/");
   const toggle = page.getByRole("button", { name: "파일 목록 열기" });
@@ -78,7 +101,7 @@ test("Evidence 폭을 드래그하고 새로고침 후 유지한다", async ({ p
 
 test("자격과 제출물 상태를 화면에서 변경한다", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Go / No-Go" }).click();
+  await page.getByRole("button", { name: "Go / No-Go", exact: true }).click();
   const eligibilityStatus = page.locator(".goNoGoView .card select").first();
   await eligibilityStatus.selectOption("met"); await expect(eligibilityStatus).toHaveValue("met");
   await page.getByRole("button", { name: "실행 준비" }).click();
@@ -96,8 +119,23 @@ test("입찰 제출서류와 사업 수행 산출물을 개별 구역에 표시�
   await expect(page.getByText("최종보고서", { exact: true })).toBeVisible();
 });
 
-test("좁은 화면에서는 Evidence를 숨기고 내용이 넘치지 않는다", async ({ page }) => {
+test("실행 준비 카드를 클릭하면 우측 원문 페이지를 표시한다", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "실행 준비" }).click();
+  await page.locator(".deliverablesView .cardBody").first().click();
+  await expect(page.locator(".evidence").getByText("테스트 RFP")).toBeVisible();
+  await expect(page.locator(".evidence").getByText(/^p\.7/)).toBeVisible();
+  await expect(page.locator(".pageViewer").getByText(/실제 원문 영역/)).toBeVisible();
+});
+
+test("태블릿 폭에서는 Evidence를 유지하고 더 좁은 화면에서만 숨긴다", async ({ page }) => {
   await page.setViewportSize({ width: 980, height: 900 }); await page.goto("/");
+  await expect(page.locator(".evidence")).toBeVisible();
+  await page.getByRole("button", { name: "Go / No-Go", exact: true }).click();
+  await page.locator(".goNoGoView .cardBody").first().click();
+  await expect(page.locator(".evidence").getByText("테스트 RFP")).toBeVisible();
+  await expect(page.locator(".evidence").getByText(/실제 원문 영역/)).toBeVisible();
+  await page.setViewportSize({ width: 820, height: 900 });
   await expect(page.locator(".evidence")).toBeHidden(); await expect(page.locator(".evidenceResize")).toBeHidden();
   const overflow = await page.locator(".layout").evaluate(node => node.scrollWidth > node.clientWidth);
   expect(overflow).toBe(false);

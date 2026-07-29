@@ -61,6 +61,9 @@ python -m scripts.run_ingestion
 python -m pytest
 ```
 
+테스트·평가 실행시간 최적화 원칙과 기본 병렬값은
+[`docs/TEST_EXECUTION_POLICY.md`](docs/TEST_EXECUTION_POLICY.md)를 따른다.
+
 ## RFP retrieval
 
 실제 검색 입력은 `data/processed/chunks.jsonl`이다. 검색 설정은

@@ -14,6 +14,9 @@
 .tabSummaryGrid strong { display: block; color: #0f172a; font-size: 18px; line-height: 1.45; }
 .tabSummaryGrid p { margin: 10px 0 0; color: #475569; font-size: 14px; line-height: 1.65; }
 .evidence blockquote { display: none; }
+.overview .summaryCard[role="button"] { cursor: pointer; }
+.overview .summaryCard[role="button"]:hover,
+.overview .summaryCard[role="button"]:focus { border-color: #2563eb; box-shadow: 0 5px 16px rgba(37, 99, 235, .12); outline: none; }
 @media (max-width: 900px) { .summaryGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .deliverablesView .sectionTitle span { margin-left: 6px; color: #64748b; font-size: 13px; }
 .deliverablesView .sectionDescription { margin: -7px 0 12px; color: #64748b; font-size: 13px; }
@@ -30,3 +33,7 @@
 .fileListToggle:hover { color: #fff; background: #2f6fe4; }
 .layout:not(.fileListCollapsed) .fileListToggle { display: flex; height: 42px; width: 100%; flex-direction: row; justify-content: center; writing-mode: horizontal-tb; }
 @media(max-width:1000px){.layout.fileListCollapsed{grid-template-columns:42px minmax(0,1fr)}}
+.riskRatioSummary>div[role="button"] { cursor: pointer; }
+.riskRatioSummary>div[role="button"]:hover,
+.riskRatioSummary>div[role="button"]:focus { border-color: #2563eb; box-shadow: 0 5px 16px rgba(37, 99, 235, .12); outline: none; }
+.pageViewer>.eyebrow { display: block; }

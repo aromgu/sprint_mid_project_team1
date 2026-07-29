@@ -1,0 +1,530 @@
+{
+  "model": "gpt-4o-mini",
+  "evaluated_questions": 104,
+  "summary": {
+    "faithfulness": 0.8479367193415613,
+    "answer_relevancy": 0.37420719646790135
+  },
+  "details": [
+    {
+      "question_id": "농수산_q003",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.669286090309812
+    },
+    {
+      "question_id": "농수산_q002",
+      "faithfulness": 0.6,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "농수산_q005",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.40269872447230215
+    },
+    {
+      "question_id": "농수산_q001",
+      "faithfulness": 0.7,
+      "answer_relevancy": 0.49262403062541665
+    },
+    {
+      "question_id": "농수산_q004",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.32886180384718755
+    },
+    {
+      "question_id": "농수산_q006",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.3821367045102228
+    },
+    {
+      "question_id": "농수산_q010",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.3762839413296446
+    },
+    {
+      "question_id": "농수산_q009",
+      "faithfulness": 0.5,
+      "answer_relevancy": 0.5366211474417737
+    },
+    {
+      "question_id": "농수산_q008",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.3075120007187848
+    },
+    {
+      "question_id": "농수산_q007",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.38272965792839014
+    },
+    {
+      "question_id": "수자원_q003",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.6196749035539679
+    },
+    {
+      "question_id": "수자원_q001",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.36857970502756676
+    },
+    {
+      "question_id": "수자원_q005",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.43643161701874766
+    },
+    {
+      "question_id": "수자원_q002",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.4683410178521105
+    },
+    {
+      "question_id": "수자원_q004",
+      "faithfulness": 0.75,
+      "answer_relevancy": 0.39515419174300614
+    },
+    {
+      "question_id": "수자원_q007",
+      "faithfulness": 0.6666666666666666,
+      "answer_relevancy": 0.3164035692855294
+    },
+    {
+      "question_id": "수자원_q009",
+      "faithfulness": 0.6666666666666666,
+      "answer_relevancy": 0.580319260052247
+    },
+    {
+      "question_id": "수자원_q008",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.616728961034448
+    },
+    {
+      "question_id": "수자원_q006",
+      "faithfulness": 0.6774193548387096,
+      "answer_relevancy": 0.4245102891186578
+    },
+    {
+      "question_id": "수자원_q010",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.4431639839148726
+    },
+    {
+      "question_id": "한영대학_q002",
+      "faithfulness": 0.4,
+      "answer_relevancy": 0.6435757118632909
+    },
+    {
+      "question_id": "한영대학_q001",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.21565905513384595
+    },
+    {
+      "question_id": "한영대학_q003",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.3385201341773263
+    },
+    {
+      "question_id": "한영대학_q005",
+      "faithfulness": 0.5,
+      "answer_relevancy": 0.6856419572328581
+    },
+    {
+      "question_id": "한영대학_q006",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.5075519773390658
+    },
+    {
+      "question_id": "한영대학_q004",
+      "faithfulness": 0.8333333333333334,
+      "answer_relevancy": 0.4113497074803408
+    },
+    {
+      "question_id": "한영대학_q008",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.4406677062252413
+    },
+    {
+      "question_id": "한영대학_q007",
+      "faithfulness": 0.8,
+      "answer_relevancy": 0.43488033316508695
+    },
+    {
+      "question_id": "한영대학_q009",
+      "faithfulness": 0.5714285714285714,
+      "answer_relevancy": 0.3482470769859114
+    },
+    {
+      "question_id": "인천광역시_q001",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.3908690069942565
+    },
+    {
+      "question_id": "인천광역시_q002",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.33186848627951887
+    },
+    {
+      "question_id": "인천광역시_q003",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.49998256870141117
+    },
+    {
+      "question_id": "인천광역시_q005",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "한영대학_q010",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.48794513990788296
+    },
+    {
+      "question_id": "인천광역시_q006",
+      "faithfulness": 0.75,
+      "answer_relevancy": 0.5501214951886634
+    },
+    {
+      "question_id": "인천광역시_q004",
+      "faithfulness": 0.9285714285714286,
+      "answer_relevancy": 0.532103772454445
+    },
+    {
+      "question_id": "인천광역시_q010",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.45569408259754596
+    },
+    {
+      "question_id": "인천광역시_q007",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.5885744707107899
+    },
+    {
+      "question_id": "스포츠윤리_q001",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.32160928891674084
+    },
+    {
+      "question_id": "인천광역시_q009",
+      "faithfulness": 0.75,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "인천광역시_q008",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "스포츠윤리_q002",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.3977881635683345
+    },
+    {
+      "question_id": "스포츠윤리_q003",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.23483680359879136
+    },
+    {
+      "question_id": "스포츠윤리_q005",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.7465983729320566
+    },
+    {
+      "question_id": "스포츠윤리_q006",
+      "faithfulness": 0.42857142857142855,
+      "answer_relevancy": 0.30439374532558294
+    },
+    {
+      "question_id": "스포츠윤리_q007",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.4875395742588442
+    },
+    {
+      "question_id": "스포츠윤리_q010",
+      "faithfulness": 0.5,
+      "answer_relevancy": 0.42589239521818434
+    },
+    {
+      "question_id": "스포츠윤리_q004",
+      "faithfulness": 0.95,
+      "answer_relevancy": 0.4637251329987156
+    },
+    {
+      "question_id": "스포츠윤리_q008",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.38246919937859
+    },
+    {
+      "question_id": "연구재단_q001",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.33959457205663207
+    },
+    {
+      "question_id": "연구재단_q002",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.4727205574842282
+    },
+    {
+      "question_id": "스포츠윤리_q009",
+      "faithfulness": 0.9642857142857143,
+      "answer_relevancy": 0.3662572429742959
+    },
+    {
+      "question_id": "연구재단_q005",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.4060945255162239
+    },
+    {
+      "question_id": "연구재단_q006",
+      "faithfulness": 0.6666666666666666,
+      "answer_relevancy": 0.568348548956161
+    },
+    {
+      "question_id": "연구재단_q004",
+      "faithfulness": 0.5833333333333334,
+      "answer_relevancy": 0.5477472518297346
+    },
+    {
+      "question_id": "연구재단_q003",
+      "faithfulness": 0.95,
+      "answer_relevancy": 0.641724378873061
+    },
+    {
+      "question_id": "연구재단_q010",
+      "faithfulness": 0.5,
+      "answer_relevancy": 0.5557215972291717
+    },
+    {
+      "question_id": "연구재단_q007",
+      "faithfulness": 0.9473684210526315,
+      "answer_relevancy": 0.4325397225125931
+    },
+    {
+      "question_id": "연구재단_q008",
+      "faithfulness": 0.9230769230769231,
+      "answer_relevancy": 0.23132019761506364
+    },
+    {
+      "question_id": "전기안전_q001",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.3855338454951374
+    },
+    {
+      "question_id": "연구재단_q009",
+      "faithfulness": 0.47619047619047616,
+      "answer_relevancy": 0.5135619519558483
+    },
+    {
+      "question_id": "전기안전_q005",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.44717568795797935
+    },
+    {
+      "question_id": "전기안전_q002",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.6562087781069773
+    },
+    {
+      "question_id": "전기안전_q003",
+      "faithfulness": 0.9696969696969697,
+      "answer_relevancy": 0.58746286986199
+    },
+    {
+      "question_id": "전기안전_q006",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.39675240264681116
+    },
+    {
+      "question_id": "전기안전_q004",
+      "faithfulness": 0.9428571428571428,
+      "answer_relevancy": 0.45529143302347946
+    },
+    {
+      "question_id": "전기안전_q007",
+      "faithfulness": 0.75,
+      "answer_relevancy": 0.6695430701544441
+    },
+    {
+      "question_id": "전기안전_q008",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.4488246944551859
+    },
+    {
+      "question_id": "전기안전_q009",
+      "faithfulness": 0.5,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "생산기술_q001",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.3510255977393695
+    },
+    {
+      "question_id": "전기안전_q010",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.5125745458965567
+    },
+    {
+      "question_id": "생산기술_q002",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.7206101966647336
+    },
+    {
+      "question_id": "생산기술_q003",
+      "faithfulness": 0.0,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "생산기술_q007",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.5492982481966732
+    },
+    {
+      "question_id": "생산기술_q006",
+      "faithfulness": 0.3333333333333333,
+      "answer_relevancy": 0.8358074127598374
+    },
+    {
+      "question_id": "생산기술_q004",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "생산기술_q005",
+      "faithfulness": 0.625,
+      "answer_relevancy": 0.5348582778670046
+    },
+    {
+      "question_id": "생산기술_q010",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.5310210127462031
+    },
+    {
+      "question_id": "생산기술_q008",
+      "faithfulness": 0.3333333333333333,
+      "answer_relevancy": 0.3292756614270385
+    },
+    {
+      "question_id": "농수산_q011",
+      "faithfulness": 0.0,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "생산기술_q009",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.29125884342637104
+    },
+    {
+      "question_id": "수자원_q011",
+      "faithfulness": 0.8,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "스포츠윤리_q011",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "인천광역시_q011",
+      "faithfulness": 0.8333333333333334,
+      "answer_relevancy": 0.424517887546572
+    },
+    {
+      "question_id": "한영대학_q011",
+      "faithfulness": 0.7142857142857143,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "연구재단_q011",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "스포츠윤리_col001",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.6698473867571778
+    },
+    {
+      "question_id": "농수산_col001",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.16894835288494695
+    },
+    {
+      "question_id": "생산기술_q011",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "인천광역시_col001",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.5517528002064712
+    },
+    {
+      "question_id": "수자원_col001",
+      "faithfulness": 0.6,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "연구재단_col001",
+      "faithfulness": 0.8,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "사회서비스원_q001",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.4037156681348473
+    },
+    {
+      "question_id": "사회서비스원_q003",
+      "faithfulness": 0.5,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "전기안전_col001",
+      "faithfulness": 0.5,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "사회서비스원_q002",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.35849393506707744
+    },
+    {
+      "question_id": "사회서비스원_q004",
+      "faithfulness": 0.75,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "사회서비스원_q007",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.6167442047735424
+    },
+    {
+      "question_id": "사회서비스원_q006",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.3235709476840847
+    },
+    {
+      "question_id": "사회서비스원_q005",
+      "faithfulness": 0.5,
+      "answer_relevancy": 0.0
+    },
+    {
+      "question_id": "사회서비스원_q010",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.14208838255671113
+    },
+    {
+      "question_id": "사회서비스원_q008",
+      "faithfulness": 0.75,
+      "answer_relevancy": 0.4386889671060153
+    },
+    {
+      "question_id": "사회서비스원_col001",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.46845167807291094
+    },
+    {
+      "question_id": "사회서비스원_q009",
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.39640813802456476
+    }
+  ]
+}

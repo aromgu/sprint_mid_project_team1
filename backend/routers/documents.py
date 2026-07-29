@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 import re
+import asyncio
 from pathlib import Path
 from functools import lru_cache
 
@@ -73,6 +74,15 @@ async def upload_document(request: Request, filename: str = "uploaded.pdf", titl
         title=title or Path(safe_name).stem, csv_filename=safe_name, pdf_path=str(path), filename=safe_name,
         file_size=len(content), sha256=hashlib.sha256(content).hexdigest(), match_score=1.0,
         target_accuracy="pending", complexity="uploaded")
+    from src.main_rag.upload_indexer import index_uploaded_pdf
+    advanced = await asyncio.to_thread(
+        index_uploaded_pdf,
+        path,
+        document_id=document_id,
+        title=manifest_item.title,
+        organization=organization,
+        retriever=request.app.state.rag_client.advanced_retriever,
+    )
     pages_out, _ = parse_document(manifest_item)
     chunks_out = chunk_pages(pages_out)
     pages_path = root / "data/processed/pages.jsonl"; chunks_path = root / "data/processed/chunks.jsonl"
@@ -87,7 +97,10 @@ async def upload_document(request: Request, filename: str = "uploaded.pdf", titl
     from backend.services.rag_client import RAGClient
     request.app.state.search_service = SearchService()
     request.app.state.rag_client = RAGClient(search_service=request.app.state.search_service)
-    return {"document_id": document_id, "title": manifest_item.title, "pages": len(pages_out), "chunks": len(chunks_out), "status": "indexed"}
+    return {
+        "document_id": document_id, "title": manifest_item.title,
+        "pages": len(pages_out), "chunks": len(chunks_out), **advanced,
+    }
 
 
 @router.get("/documents/{document_id}")
@@ -162,4 +175,9 @@ def search(document_id: str, q: str, top_k: int = 5):
 @router.get("/health")
 def health(request: Request):
     service = request.app.state.search_service
-    return {"status": "ok", "chunk_count": len(service.chunks), "default_retriever": service.default_retriever, "available_retrievers": service.available_retrievers}
+    return {
+        "status": "ok", "chunk_count": len(service.chunks),
+        "default_retriever": "main_advanced_dense",
+        "available_retrievers": ["main_advanced_dense"],
+        "conversation_sessions": request.app.state.rag_client.sessions.session_count,
+    }

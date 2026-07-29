@@ -1,0 +1,34 @@
+paths:
+  source_dir: data/raw/unused_pdfs
+  source_manifest: data/manifests/documents.json
+  advanced_manifest: data/main_advanced/manifest/documents.jsonl
+  recovery_dir: data/main_advanced/recovery
+  preprocessing_dir: data/main_advanced/preprocessed
+  chunks: data/main_advanced/chunks/chunks_advanced.jsonl.gz
+  chunking_report: reports/main_advanced/advanced_chunking_report.json
+  chroma: data/main_advanced/chroma
+  indexing_report: reports/main_advanced/indexing_report.json
+  reports: reports/main_advanced
+
+index:
+  collection_name: ai11_policy_advanced_v2
+  embedding_model: text-embedding-3-small
+  embedding_dimension: 1536
+  batch_size: 100
+
+retrieval:
+  mode: dense
+  top_k: 10
+
+generation:
+  provider: openai
+  model: gpt-5-nano
+  max_context_chars: 7000
+  max_docs: 10
+
+# P1 evaluation uses generation.provider/model above. P2 browser requests select
+# one of these runtime models without changing the recorded evaluation setup.
+runtime:
+  openai: gpt-5-nano
+  gemini: gemini-3.5-flash
+  gemini_lite: gemini-3.5-flash-lite

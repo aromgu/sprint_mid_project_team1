@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -18,13 +20,18 @@ class Citation(BaseModel):
     page_start: int
     page_end: int
     requirement_ids: list[str]
+    quote: str | None = None
+    score: float | None = None
 
 
 class AnswerResponse(BaseModel):
     question: str
     answer: str
     is_answerable: bool
+    answer_status: Literal["answered", "partially_answered", "unanswerable"] | None = None
     caveat: str | None = None
+    confidence: float | None = None
+    conflicts: list[str] = []
     citations: list[Citation]
     retrieved_chunk_ids: list[str]
     retriever: str
