@@ -70,7 +70,7 @@ class Reranker:
         print("[Reranker] 로딩 완료")
         self._initialized = True  # 다음부터는 __init__ 내용을 건너뜀
 
-    def _predict(self, pairs: list[tuple[str, str]], batch_size: int = 32):
+    def _predict(self, pairs: list[tuple[str, str]], batch_size: int = 8):
         """query-document 쌍들의 관련성 점수를 계산하는 내부 공용 함수.
 
         - torch.inference_mode(): 추론 전용 모드로, 그래디언트를 아예 추적하지 않아서
