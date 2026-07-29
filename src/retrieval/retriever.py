@@ -28,8 +28,8 @@ import time
 
 from functools import lru_cache, wraps
 from rank_bm25 import BM25Okapi
-from src.retrieval.reranker import Reranker
-
+# from src.retrieval.reranker import Reranker
+from reranker import Reranker
 reranker = Reranker()
 
 load_dotenv()
@@ -44,7 +44,7 @@ EMBEDDINGS_MODEL = os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-small")
 CHROMA_COLLECTION = "ai11_policy_advanced_v2_1024"
 CHROMA_PERSIST_DIR = "/home/data/chroma_advanced_v2_1024"
 BM25_INDEX_PATH = "/home/data/bm25_advanced_v2_1024/bm25_index.pkl"
-DEFAULT_WEIGHTS: tuple[float, float] = (0.3, 0.7)
+DEFAULT_WEIGHTS: tuple[float, float] = (0.7, 0.3)
 
 def measure_time(func):
     """함수 실행 시간을 재서 출력해주는 데코레이터.
@@ -384,7 +384,7 @@ def get_hybrid_retriever(
 @measure_time
 def search_documents(
     query: str,
-    k: int = 5,
+    k: int = 10,
     candidate_k: int = 10,
     metadata_filter: dict | None = None,
     # use_score_fusion: bool = True,
