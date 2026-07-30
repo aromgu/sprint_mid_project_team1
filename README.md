@@ -190,14 +190,6 @@ uv run python main.py
 - 검색은 k=20(기본값)으로 한 번만 수행한 뒤 결과를 잘라서 k=1/3/5/10/20 지표를 한 번에 계산합니다
   (검색 결과는 `retrieval_results.jsonl`에 캐시되어, k만 바꿔 재계산할 때 재검색이 필요 없습니다).
 
-```bash
-# chunk_id 형식이 골든셋과 맞는지 사전 점검 (가장 흔한 실수 방지)
-python eval_retriever.py --check
-
-# 한 번에, 리랭킹 전/후 비교까지
-python eval_retriever.py --stage both
-```
-
 ### 2) 답변 품질 평가 — RAGAS
 
 `src/evaluation/eval_ragas.py`에서 [RAGAS](https://github.com/explodinggpt/ragas) 라이브러리로
