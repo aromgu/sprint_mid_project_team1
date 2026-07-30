@@ -382,7 +382,7 @@ def get_hybrid_retriever(
 @measure_time
 def search_documents(
     query: str,
-    k: int = 10,
+    k: int = 5,
     candidate_k: int = 10,
     metadata_filter: dict | None = None,
     # use_score_fusion: bool = True,
