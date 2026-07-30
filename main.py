@@ -12,13 +12,9 @@ from src.retrieval.retriever import search_documents
 
 load_dotenv()
 
-# -------------------------------------------------------------
-# 로거 설정
-# -------------------------------------------------------------
 setup_logging()
 logger = logging.getLogger(__name__)
 
-# httpx 및 openai 라이브러리의 HTTP 요청 로그(HTTP Request: POST ...) 차단
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -32,16 +28,16 @@ async def main():
     1. 프로그램 시작 시 세션 객체를 한 번만 생성한다.
     2. 사용자가 질문을 입력할 때마다 retriever로 관련 문서를 다시 검색한다.
     3. 같은 session 객체로 session.ask()를 반복 호출한다.
-    4. session 내부의 previous_response_id가 유지되므로 멀티턴이 된다.
+    4. session 내부 상태를 유지해 멀티턴 문맥을 반영한다.
     """
-
     logger.info("프로그램 시작")
 
     openai_api_key = os.getenv("OPENAI_API_KEY")
     if not openai_api_key:
         raise ValueError("OPENAI_API_KEY가 설정되어 있지 않습니다.")
 
-    session = BidMateRAGSession(api_key=openai_api_key)
+    model_name = os.getenv("OPENAI_MODEL", "gpt-5-nano")
+    session = BidMateRAGSession(api_key=openai_api_key, model=model_name)
 
     print("입찰메이트 RAG 멀티턴 Q&A를 시작합니다.")
     print("종료하려면 'exit' 또는 'quit'를 입력하세요.")
@@ -68,9 +64,6 @@ async def main():
 
         logger.info("사용자 질문: %s", query)
 
-        # ----------------------------
-        # 1. Retrieval 단계
-        # ----------------------------
         retrieval_start_dt = datetime.now(timezone.utc)
         retrieval_start_perf = time.perf_counter()
 
@@ -99,9 +92,6 @@ async def main():
             print()
             continue
 
-        # ----------------------------
-        # 2. Generation 단계
-        # ----------------------------
         ask_start_dt = datetime.now()
         ask_start_perf = time.perf_counter()
 
@@ -128,23 +118,16 @@ async def main():
         logger.info("신뢰도: %s", result.get("confidence"))
         logger.info("현재 previous_response_id: %s", session.previous_response_id)
 
-        # ----------------------------
-        # 3. 근거 문서 포맷팅 및 출력
-        # ----------------------------
         evidence_list = result.get("evidence", [])
         if evidence_list:
             evidence_lines = []
             for item in evidence_list:
                 source = item.get("source", "N/A")
                 page = f"p.{item['page']}" if item.get("page") is not None else ""
-                chunk_id = (
-                    f"chunk:{item['chunk_id']}"
-                    if item.get("chunk_id") is not None
-                    else ""
-                )
+                chunk_id = f"chunk:{item['chunk_id']}" if item.get("chunk_id") else ""
                 score = (
                     f"score:{item['score']:.4f}"
-                    if item.get("score") is not None
+                    if item.get("score") is not None and isinstance(item.get("score"), (int, float))
                     else ""
                 )
                 quote = item.get("quote", "")
@@ -174,11 +157,7 @@ async def main():
             ]
         )
 
-        # 터미널 화면 출력
-        # print(answer_block)
-        # print()
 
-        # 로그 파일 및 로거 기록
         logger.info(
             "--- [답변 생성 결과 시작] ---\n%s\n--- [답변 생성 결과 끝] ---",
             answer_block,
