@@ -36,14 +36,16 @@ load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 EMBEDDINGS_MODEL = os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-small")
-# CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION_NAME", "ai11_policy_advanced_v2")
-# CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "/home/data/chroma_advanced_v2")
+CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION_NAME", "ai11_policy_advanced_v2_1024")
+CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "/home/data/chroma_advanced_v2_1024")
+BM25_INDEX_PATH = os.getenv("BM25_INDEX_PATH", "/home/data/bm25_advanced_v2_1024/bm25_index.pkl")
 # CHROMA_COLLECTION = "ai11_policy_advanced_v2"
 # CHROMA_PERSIST_DIR = "/home/data/chroma_advanced_v2"
 # BM25_INDEX_PATH = "/home/data/bm25_advanced_v2/bm25_index.pkl"
-CHROMA_COLLECTION = "ai11_policy_advanced_v2_1024"
-CHROMA_PERSIST_DIR = "/home/data/chroma_advanced_v2_1024"
-BM25_INDEX_PATH = "/home/data/bm25_advanced_v2_1024/bm25_index.pkl"
+# CHROMA_COLLECTION = "ai11_policy_advanced_v2_semantic_p83"
+# CHROMA_PERSIST_DIR = "/home/data/chroma_advanced_v2_semantic_p83"
+# BM25_INDEX_PATH = "/home/data/bm25_advanced_v2_semantic_p83/bm25_index.pkl"
+
 DEFAULT_WEIGHTS: tuple[float, float] = (0.7, 0.3)
 
 def measure_time(func):
