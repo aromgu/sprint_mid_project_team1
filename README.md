@@ -65,6 +65,7 @@ RAG(Retrieval-Augmented Generation) 시스템을 구축해, 수십 페이지짜�
 평가 (src/evaluation)
        - eval_retriever.py : 골든셋 기반 Hit@k / Recall@k / MRR@k로 리트리버 자체 성능 검증
        - eval_ragas.py      : RAGAS 지표로 최종 답변 품질 자동 평가
+       - eval_llm_judge.py      : LLM Judge가 루브릭 기반으로 품질을 평가
 ```
 
 
@@ -82,7 +83,7 @@ RAG(Retrieval-Augmented Generation) 시스템을 구축해, 수십 페이지짜�
 | 토큰 계산 | `tiktoken` |
 | 데이터 처리 | `pandas`, `numpy` |
 | 평가 | `ragas`(답변 품질), 자체 스크립트(리트리버 Hit@k/Recall@k/MRR@k) |
-| 코드 품질 | `ruff`, `pre-commit`, GitHub Actions Lint 워크플로우 |
+| 코드 품질 | `ruff`, `LLM-Rubric`,`pre-commit`, GitHub Actions Lint 워크플로우 |
 | 테스트 | `unittest` 기반 유닛 테스트 (`tests/`) |
 
 ## 폴더 구조
@@ -111,7 +112,7 @@ sprint_mid_project_team1/
 │  ├─ embeddings/{build_embeddings.py, build_advanced_index.py}
 │  ├─ retrieval/{retriever.py, reranker.py}
 │  ├─ generation/generate_answer.py
-│  └─ evaluation/{eval_ragas.py, eval_samples.json, eval_retriever.py}
+│  └─ evaluation/{eval_ragas.py, eval_llm_judge.py, eval_samples.json, eval_retriever.py}
 └─ tests/                
 ```
 
