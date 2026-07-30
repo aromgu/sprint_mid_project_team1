@@ -190,14 +190,6 @@ uv run python main.py
 - 검색은 k=20(기본값)으로 한 번만 수행한 뒤 결과를 잘라서 k=1/3/5/10/20 지표를 한 번에 계산합니다
   (검색 결과는 `retrieval_results.jsonl`에 캐시되어, k만 바꿔 재계산할 때 재검색이 필요 없습니다).
 
-```bash
-# chunk_id 형식이 골든셋과 맞는지 사전 점검 (가장 흔한 실수 방지)
-python eval_retriever.py --check
-
-# 한 번에, 리랭킹 전/후 비교까지
-python eval_retriever.py --stage both
-```
-
 ### 2) 답변 품질 평가 — RAGAS
 
 `src/evaluation/eval_ragas.py`에서 [RAGAS](https://github.com/explodinggpt/ragas) 라이브러리로
@@ -227,6 +219,6 @@ python eval_retriever.py --stage both
 - 김효진 : UI앱개발
 
 ## 결과물 제출 기한
-- Github Repository 링크 : ~ 2026/07/31 19:00
-- 보고서(pdf) : ~ 2026/07/31 19:00 (Github Repository Readme에 보고서 파일을 다운로드 할 수 있도록 첨부)
-- 협업일지 : ~ 2026/08/03 23:50 (개인 단위로 작성하되, 내용을 확인할 수 있도록 Readme에 링크 또는 pdf)
+- Github Repository 링크 : ~ 8월 2일(일) 19:00까지
+- 보고서(pdf) : ~ 8월 2일(일) 19:00까지 (Github Repository Readme에 보고서 파일을 다운로드 할 수 있도록 첨부)
+- 협업일지 : ~ 8월 3일(월) 23:50까지 (개인 단위로 작성하되, 내용을 확인할 수 있도록 Readme에 링크 또는 pdf)
