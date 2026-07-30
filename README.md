@@ -66,7 +66,7 @@ RAG(Retrieval-Augmented Generation) 시스템을 구축해, 수십 페이지짜�
 평가 (src/evaluation)
        - eval_retriever.py : 골든셋 기반 Hit@k / Recall@k / MRR@k로 리트리버 자체 성능 검증
        - eval_ragas.py      : RAGAS 지표로 최종 답변 품질 자동 평가
-       - eval_llm_judge.py      : LLM Judge가 루브릭 기반으로 품질을 평가
+       - eval_llm_judge.py      : LLM Judge가 Rubric 기반으로 품질을 평가
 ```
 
 
