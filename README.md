@@ -36,6 +36,7 @@ RAG(Retrieval-Augmented Generation) 시스템을 구축해, 수십 페이지짜�
 - **멀티턴 Q&A**: 이전 대화 맥락을 유지하며 질문을 재작성(query rewrite)하고, 구조화된 JSON으로 답변(근거 인용 포함)
 - **골든셋 기반 리트리버 검증**: Hit@k / Recall@k / MRR@k로 검색 자체 성능을 LLM 호출 없이 정량 측정
 - **RAGAS 기반 정량 평가**: Faithfulness, Context Precision/Recall, Answer Relevancy 등으로 답변 품질 측정
+- **LLM-Rubric 기반 정량 평가**: correctness, groundedness, relevance, completeness, clarity 등으로 답변 품질 측정
 
 ## 전체 파이프라인
 
