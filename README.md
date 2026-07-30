@@ -219,6 +219,6 @@ uv run python main.py
 - 김효진 : UI앱개발
 
 ## 결과물 제출 기한
-- Github Repository 링크 : ~ 2026/07/31 19:00
-- 보고서(pdf) : ~ 2026/07/31 19:00 (Github Repository Readme에 보고서 파일을 다운로드 할 수 있도록 첨부)
-- 협업일지 : ~ 2026/08/03 23:50 (개인 단위로 작성하되, 내용을 확인할 수 있도록 Readme에 링크 또는 pdf)
+- Github Repository 링크 : ~ 8월 2일(일) 19:00까지
+- 보고서(pdf) : ~ 8월 2일(일) 19:00까지 (Github Repository Readme에 보고서 파일을 다운로드 할 수 있도록 첨부)
+- 협업일지 : ~ 8월 3일(월) 23:50까지 (개인 단위로 작성하되, 내용을 확인할 수 있도록 Readme에 링크 또는 pdf)
