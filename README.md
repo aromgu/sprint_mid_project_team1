@@ -1,31 +1,70 @@
-# sprint_mid_project_team1
-mid project with RAG
+# RFP Copilot
 
+RFP 문서를 업로드하고, 입찰 검토에 필요한 핵심 정보와 원문 근거를 함께 제공하는
+업무 지원형 RAG 애플리케이션입니다. 현재 운영 기준 코드는
+`aromgu/sprint_mid_project_team1` 저장소의 `dev` 브랜치입니다.
 
-## Settings
-해당 repo를 clone 한 후에, repo directory에서  ```uv sync``` 와 ```uvx prek install```  터미널에 실행.
+## 현재 구현 상태
 
-### 다른 컴퓨터에서 clone 후 바로 실행
+- 9개 RFP 문서 기반 Main Advanced RAG 파이프라인
+- PDF 전처리, 구조 보존 청킹, Dense/BM25 인덱싱
+- 문서 단위 검색 범위 제한과 출처 페이지·요구사항 근거 제공
+- Dense 검색을 서비스 기본값으로 사용하고 Hybrid RRF는 평가 모드로 제공
+- OpenAI `gpt-5-nano`, Gemini Flash, Gemini Flash Lite 런타임 선택
+- 문서 업로드 후 전처리·인덱싱·Workspace 반영
+- Overview, Go/No-Go, 위험, 요구사항, 제출물, AI 질의, 평가 화면
+- 대화 스트리밍, 상태 변경, 원문 페이지 연결
+- Retrieval/RAGAS 평가, W&B 기록, 재개 가능한 배치 실행
 
-raw PDF와 바이너리 검색 인덱스는 Git LFS로 관리한다. 먼저 Git LFS를 설치한 뒤
-파일을 내려받아야 한다.
+현재 개발 내용은 팀 저장소 `dev`에 반영되어 있습니다.
+
+## 빠른 시작
+
+### 1. 저장소와 Git LFS 준비
+
+Python 3.11 이상, Node.js, `uv`, Git LFS가 필요합니다.
 
 ```bash
-git clone https://github.com/hyojin33kim/RFP.ai.git
-cd RFP.ai
+git clone --branch dev https://github.com/aromgu/sprint_mid_project_team1.git
+cd sprint_mid_project_team1
 git lfs install
 git lfs pull
 uv sync
+uvx prek install
+```
+
+### 2. 환경변수 설정
+
+```bash
 cp .env.example .env
 ```
 
-`.env`에 실제 API 키를 설정한 뒤 백엔드와 프런트엔드를 실행한다.
+사용할 공급자에 맞춰 `.env`에 API 키를 설정합니다. API 키는 Git에 커밋하지
+않습니다.
 
-```bash
-uv run uvicorn backend.main:app --reload
+```dotenv
+OPENAI_API_KEY=...
+GEMINI_API_KEY=...
 ```
 
-별도 터미널:
+Main Advanced 기본 검색 인덱스는 OpenAI embedding으로 생성되어 있으므로 해당
+경로를 사용할 때는 `OPENAI_API_KEY`가 필요합니다.
+
+### 3. 백엔드 실행
+
+```bash
+uv run uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+API 문서:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+### 4. 프런트엔드 실행
+
+별도 터미널에서 실행합니다.
 
 ```bash
 cd frontend
@@ -33,237 +72,188 @@ npm ci
 npm run dev
 ```
 
-`data/processed`, `data/manifests`, `data/indexes`가 함께 배포되므로 clone 직후
-PDF ingestion과 인덱스 재생성 없이 검색·Workspace 기능을 사용할 수 있다.
+기본 접속 주소는 `http://127.0.0.1:5173`입니다. Vite 개발 서버는 `/api` 요청을
+백엔드 `http://127.0.0.1:8000`으로 전달합니다.
 
-## RFP PDF ingestion
+## 서비스 구성
 
-검증 대상은 `RAG_검증_샘플_파일명_정리_2.csv`의 9개 문서이며, 원본 PDF는
-`data/raw` 아래에서 읽는다. 원본 PDF는 수정하지 않는다.
-
-```bash
-uv sync
-python -m scripts.run_ingestion
+```text
+PDF 업로드
+  -> 문서 manifest 및 구조 보존 전처리
+  -> 텍스트·표 청킹
+  -> OpenAI Dense/Chroma 및 Kiwi BM25 인덱스
+  -> 문서 범위 제한 검색
+  -> 근거 기반 답변 생성
+  -> React Workspace와 평가 화면
 ```
 
-설정은 `configs/ingestion.yaml`에서 변경할 수 있다.
+Main Advanced 설정은
+[`configs/main_advanced_rag.yaml`](configs/main_advanced_rag.yaml)에서 관리합니다.
 
-실행 결과:
+| 항목 | 현재 기본값 |
+|---|---|
+| corpus | 9개 RFP 문서 |
+| chunk artifact | `data/main_advanced/chunks/chunks_advanced.jsonl.gz` |
+| Dense model | `text-embedding-3-small`, 1536차원 |
+| 검색 모드 | Dense |
+| 검색 `top_k` | 10 |
+| 답변 모델 | `gpt-5-nano` |
+| 최대 문맥 | 7,000자 |
+| Hybrid | Dense 0.3 + BM25 0.7, weighted RRF |
+| reranker | 비활성화 |
 
-- `data/manifests/documents.json`: CSV와 실제 PDF를 연결한 문서 manifest
-- `data/processed/pdf_diagnostics.json`: 문서별 추출 품질과 OCR 필요 페이지
-- `data/processed/pages.jsonl`: 페이지·블록·표 행을 보존한 파싱 결과
-- `data/processed/chunks.jsonl`: 검색 및 Golden set에서 사용할 구조화 청크
+## Main Advanced 파이프라인
 
-테스트:
+### 청킹
 
-```bash
-python -m pytest
-```
-
-테스트·평가 실행시간 최적화 원칙과 기본 병렬값은
-[`docs/TEST_EXECUTION_POLICY.md`](docs/TEST_EXECUTION_POLICY.md)를 따른다.
-
-## RFP retrieval
-
-실제 검색 입력은 `data/processed/chunks.jsonl`이다. 검색 설정은
-`configs/search.yaml`에서 관리한다. 기본 검색기는 Hybrid RRF이며 CLI에서
-`--retriever`를 생략하면 `pipeline.retriever` 설정을 사용한다.
-
-최초 인덱스 생성:
+현재 스크립트 기본값은 1024 tokens, overlap 102, worker 4입니다. 긴 작업은
+checkpoint와 `--resume`을 사용합니다.
 
 ```bash
-python -m scripts.build_search_indexes
+uv run python -m scripts.main_rag.run_advanced_chunking \
+  --max-workers 4 --resume
 ```
 
-BM25만 먼저 생성할 수도 있다.
+기존 512/51 평가 artifact를 재현하려면 크기를 명시하고 출력 경로를 분리합니다.
 
 ```bash
-python -m scripts.build_search_indexes --bm25-only
+uv run python -m scripts.main_rag.run_advanced_chunking \
+  --chunk-size 512 --chunk-overlap 51 --max-workers 4 \
+  --output data/main_advanced/chunks_512/chunks_advanced.jsonl.gz \
+  --report reports/main_advanced_512/advanced_chunking_report.json
 ```
 
-단일 질의 검색:
+### 인덱싱
 
 ```bash
-python -m scripts.run_search \
-  --query "전자기록관 DB 정비 및 마이그레이션 요구사항" \
-  --retriever hybrid \
-  --top-k 5
+uv run python -m scripts.main_rag.run_advanced_indexing
 ```
 
-`--retriever`는 `bm25`, `dense`, `hybrid`, `reranked` 중 하나다. `--document-id`와
-`--content-type`을 반복 지정해 검색 범위를 제한할 수 있다.
-
-JSONL 질의 파일을 일괄 검색하고 결과를 저장할 수 있다.
+Dense, BM25 또는 두 인덱스를 함께 생성할 수 있습니다. 상세 옵션은 다음으로
+확인합니다.
 
 ```bash
-python -m scripts.run_search \
-  --queries questions.jsonl \
-  --retriever hybrid \
-  --output reports/search_results.jsonl
+uv run python -m scripts.main_rag.run_advanced_indexing --help
 ```
 
-Golden set이 준비되면 다음 명령으로 검색기를 비교한다.
+### Retrieval 평가
+
+한 건 smoke를 먼저 실행합니다.
 
 ```bash
-python -m scripts.evaluate_retrieval \
-  --golden data/eval/golden_set.jsonl \
-  --retriever all
+uv run python -m scripts.main_rag.evaluate_retrieval \
+  --retriever all --limit 1 --top-k 5 \
+  --output-dir /tmp/main_advanced_retrieval_smoke
 ```
 
-Golden set 입력 형식은 `data/eval/GOLDEN_SET_INPUT_SCHEMA.md`에 정의되어 있다.
-
-Cross-encoder 재정렬과 인접 청크 확장:
+전체 평가는 latency 비교 재현성을 위해 worker 1로 실행하며, 완료 결과를
+재사용합니다.
 
 ```bash
-python -m scripts.run_search \
-  --query "SFR-007 예약 시스템 기능" \
-  --config configs/search/hybrid_reranked.yaml \
-  --neighbor-window 1 \
-  --top-k 5
+uv run python -m scripts.main_rag.evaluate_retrieval \
+  --retriever all --top-k 5 --max-workers 1 --resume \
+  --output-dir reports/main_advanced/retrieval_comparison
 ```
 
-`reranked`는 로컬 `Dongjin-kr/ko-reranker`를 사용한다. CPU에서는 일반
-Hybrid 검색보다 느리므로 Golden set에서 효과를 검증한 뒤 기본 활성화 여부를
-결정한다. `--neighbor-window 1`은 최종 검색 청크의 앞뒤 청크를 답변용 문맥에
-추가하며 검색 순위 자체는 바꾸지 않는다.
+### 답변 생성
 
-구성요소별 프리셋도 제공한다.
+독립 API 요청의 안전한 기본 병렬값은 worker 4입니다.
 
 ```bash
-python -m scripts.run_search --query "SFR-007 예약 기능" \
-  --config configs/search/bm25.yaml
-python -m scripts.run_search --query "SFR-007 예약 기능" \
-  --config configs/search/hybrid_reranked.yaml
+uv run python -m scripts.main_rag.run_answers \
+  --top-k 10 --max-workers 4 --resume \
+  --output reports/main_advanced/answers_top10.jsonl
 ```
 
-- BM25 tokenizer: `korean_ngram`, `regex`, `whitespace` (`morpheme`는 분석기 어댑터 설치 후 사용)
-- Dense model: `dense.model`, `query_prefix`, `passage_prefix`로 교체
-- Fusion: `rrf` 또는 `weighted_score`
-- Reranker: `reranker.enabled`; 기본값은 `false`
-- 인접 문맥: `context_expansion.enabled`, `window`
+## 현재 Retrieval 평가 결과
 
-`configs/search/`에는 BM25, Dense, KoE5, Hybrid RRF, weighted-score,
-reranked 프리셋이 있다. KoE5와 reranker 프리셋은 CPU에서 느릴 수 있다.
-평가의 `--retriever all`은 해당 설정에서 활성화된 검색기만 비교하므로,
-reranker까지 비교할 때는 `--config configs/search/hybrid_reranked.yaml`을 함께 쓴다.
+9개 문서, Golden v3의 답변 가능 질문 95개, `top_k=5`, 512/51 인덱스 기준입니다.
 
-## OpenAI RAG answer and API
+| 지표 | Dense | Hybrid RRF |
+|---|---:|---:|
+| Hit@1 | 0.6105 | 0.5684 |
+| Hit@3 | 0.7789 | 0.7684 |
+| Hit@5 | 0.8842 | 0.8105 |
+| MRR@10 | 0.7084 | 0.6679 |
+| Section recall@5 | 0.5070 | 0.5860 |
+| Fact coverage@5 | 0.6877 | 0.6035 |
+| 평균 latency | 284.4 ms | 341.2 ms |
+| p95 latency | 384.2 ms | 422.7 ms |
 
-답변 생성 기본 모델은 저비용 `gpt-5-nano`이며 Responses API의 구조화 출력을
-사용한다. 모델과 reasoning 수준은 `configs/generation.yaml`에서 교체할 수 있다.
-API 키는 저장소에 커밋하지 않고 `.env` 또는 `.env.local`의
-`OPENAI_API_KEY`로만 전달한다.
+Hybrid는 section recall에서는 앞섰지만 Hit@5, MRR, fact coverage와 latency의 채택
+기준을 충족하지 못했습니다. 따라서 Dense가 서비스 기본값이며 Hybrid RRF는 가중치와
+candidate 수를 조정하는 실험 기능으로 유지합니다.
 
-```bash
-uv run python -m scripts.run_answer \
-  --query "SFR-007 예약 시스템에서 예약기간은 누가 설정합니까?"
-```
+상세 결과는
+[`reports/main_advanced/retrieval_comparison_512/RESULT.md`](reports/main_advanced/retrieval_comparison_512/RESULT.md)를 참고합니다.
 
-응답에는 답변 가능 여부, 문서·페이지·요구사항·청크 인용, 검색/생성 시간,
-입출력 토큰과 설정 단가 기반 예상 비용이 포함된다. 존재하지 않는 출처 라벨은
-제거되며 유효한 인용이 없으면 답변을 강제로 유보한다.
+## 주요 API
 
-FastAPI 실행:
+`backend.main:app`이 Workspace용 통합 API입니다.
+
+- 문서: 목록, 상세, 업로드, 목차, 원문 검색
+- 분석: Overview, 위험, 참가 자격, 요구사항, 제출물
+- 질의: 일반 응답, 스트리밍 응답, 대화 초기화
+- 상태: 자격·위험·제출물 상태 변경
+- 평가: 요약과 Main Advanced/RAGAS 보고서
+
+검색·답변만 제공하는 경량 API는 다음과 같이 실행할 수 있습니다.
 
 ```bash
 uv run uvicorn src.api:app --host 127.0.0.1 --port 8000
 ```
 
-- `GET /health`: 청크 수, 기본 검색기, API 키 설정 여부
-- `POST /search`: 검색 결과만 반환
-- `POST /answer`: 검색 후 근거 기반 OpenAI 답변 반환
-- API 문서: `http://127.0.0.1:8000/docs`
+경량 API는 `GET /health`, `POST /search`, `POST /answer`를 제공합니다.
 
-Handover v3 MVP API와 기본 화면을 함께 실행하려면 두 터미널에서 실행한다.
+## 테스트
+
+변경 관련 테스트를 먼저 실행하고, 통과 후 전체 회귀를 한 번 실행합니다.
 
 ```bash
-# backend
-uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000
+uv run pytest -q tests/test_main_advanced_rag.py tests/test_backend_mvp.py
+uv run pytest -q
+```
 
-# frontend
+프런트엔드 검증:
+
+```bash
 cd frontend
-npm run dev
+npm run build
+npm run test:ui
 ```
 
-backend는 기본적으로 시작 시 Dense 모델을 미리 로드한다. 따라서 서버 시작은
-약간 느려지지만 첫 검색 요청의 모델 로딩 지연을 줄인다. 끄려면
-`RAG_PREWARM_DENSE=false`를 설정한다. 현재 MVP는 OpenAI context를 12,000자,
-최대 출력을 700토큰으로 제한해 응답 latency와 비용을 줄인다.
+실제 FastAPI/OpenAI 브라우저 E2E는 비용이 발생하는 opt-in 테스트입니다. 일반 UI
+회귀에서는 자동으로 건너뜁니다. 테스트 병렬값과 실행 원칙은
+[`docs/TEST_EXECUTION_POLICY.md`](docs/TEST_EXECUTION_POLICY.md)를 따릅니다.
 
-기본 화면은 `frontend/src/`에 있으며, 실제 문서 목록·Overview·위험·요구사항·AI
-질문을 현재 RAG API에 연결한다. 상세 구현 순서는
-`HANDOVER_V3_MVP_IMPLEMENTATION_PROCEDURE.md`를 따른다.
-
-검색·생성 latency 측정:
-
-```bash
-uv run python -m scripts.profile_latency
-uv run python -m scripts.profile_latency --live  # OpenAI 호출 1회 포함
-```
-
-API 응답에는 `X-Process-Time-ms` 헤더가 포함되고 backend 터미널에도 요청별
-처리 시간이 기록된다. 첫 Dense 모델 로딩, 반복 검색, OpenAI 생성 시간을
-분리해서 확인할 수 있다.
-
-## OCR augmentation
-
-시스템 Tesseract를 설치할 권한이 없는 환경에서는 사용자 공간 runtime을 준비한다.
-
-```bash
-bash scripts/bootstrap_tesseract_user.sh
-python -m scripts.run_ocr
-python -m scripts.run_ingestion
-python -m scripts.build_search_indexes
-```
-
-OCR 결과는 `data/processed/ocr_pages.jsonl`에 저장된다. ingestion은 이 파일이
-있으면 페이지 메타데이터와 별도 `ocr_*` 검색 청크를 자동으로 추가한다.
-시스템 구성도 OCR은 관계 구조를 완전히 보존하지 못하므로
-`multimodal_review_required` 표시를 확인해야 한다.
-
-> `scripts/run_rag.py`, `src/loader/load_documents.py`, `src/dataset.py`는 기존
-> 스마트워치·사내규정 데모 코드다. 실제 RFP 검색은 `scripts/run_search.py`와
-> `src/search/` 모듈을 사용한다.
-
-
-
-
-## Project Structure
+## 주요 디렉터리
 
 ```text
-rag-project/
-├─ README.md
-├─ .gitignore
-├─ .env.example
-├─ src/
-│  ├─ loader/
-│  │  └─ load_documents.py
-│  ├─ preprocessing/
-│  │  └─ clean_text.py
-│  ├─ chunking/
-│  │  └─ split_text.py
-│  ├─ embeddings/
-│  │  └─ build_embeddings.py
-│  ├─ retrieval/
-│  │  ├─ retriever.py
-│  │  └─ reranker.py
-│  ├─ generation/
-│  │  └─ generate_answer.py
-│  └─ evaluation/
-│     └─ eval_rag.py
-├─ data/
-│  ├─ raw/
-│  ├─ processed/
-│  └─ eval/
-├─ scripts/
-│  ├─ run_indexing.py
-│  ├─ run_rag.py
-│  └─ run_eval.py
-├─ notebooks/
-├─ tests/
-├─ docs/
-└─ .github/
-   ├─ ISSUE_TEMPLATE/
-   └─ pull_request_template.md
+backend/                     FastAPI Workspace 백엔드
+frontend/                    React/Vite UI와 Playwright 테스트
+configs/                     ingestion, 검색, 생성, Main Advanced 설정
+src/main_rag/                Main Advanced 검색·생성·서비스 계층
+scripts/main_rag/            청킹, 인덱싱, 답변, 평가 실행 스크립트
+data/main_advanced/          manifest, 전처리, chunk, 검색 인덱스
+goldenset/                   Golden v3 평가 질문
+reports/main_advanced/       Retrieval, 답변, RAGAS 평가 결과
+reports/development_report/  개발 보고서 산출물
+reports/presentation/        발표 자료
+docs/                        실행 정책, 도입 계획, 사용성 문서
+tests/                       Python 회귀 테스트
 ```
+
+## 참고 문서
+
+- [테스트 실행 정책](docs/TEST_EXECUTION_POLICY.md)
+- [10개 문서 도입 계획](docs/MAIN_PIPELINE_10_DOCUMENT_ADOPTION_PLAN.md)
+- [사용성 테스트 피드백과 수정 사항](docs/USABILITY_TEST_FEEDBACK_AND_FIXES.md)
+- [최근 작업 요약](docs/WORK_SUMMARY_2026-07-29.md)
+- [Retrieval 512/51 비교 결과](reports/main_advanced/retrieval_comparison_512/RESULT.md)
+
+## 보안 및 데이터 관리
+
+- `.env`, API 키, credential은 커밋하지 않습니다.
+- 원본 PDF와 바이너리 검색 artifact는 Git LFS로 관리합니다.
+- 유료 API 평가는 대표 smoke가 성공한 뒤 전체 batch를 실행합니다.
+- 장시간 평가는 `--resume`과 별도 output 경로를 사용해 성공 결과를 재사용합니다.
