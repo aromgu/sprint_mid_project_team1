@@ -202,6 +202,8 @@ uv run python main.py
 - **LLMContextRecall**: 정답에 필요한 정보를 검색이 얼마나 잘 커버했는지
 - **ResponseRelevancy**: 답변이 질문과 얼마나 관련 있는지
 
+평가용 질의-정답 세트는 `src/evaluation/eval_samples.json`에 있습니다.
+
 ### 3) 답변 품질 평가 — LLM Judge
 
 `src/evaluation/eval_llm_judge.py`에서 별도의 LLM Judge 모델로 답변 품질을 루브릭 기반으로 평가합니다.
