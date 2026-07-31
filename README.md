@@ -257,3 +257,7 @@ tests/                       Python 회귀 테스트
 - 원본 PDF와 바이너리 검색 artifact는 Git LFS로 관리합니다.
 - 유료 API 평가는 대표 smoke가 성공한 뒤 전체 batch를 실행합니다.
 - 장시간 평가는 `--resume`과 별도 output 경로를 사용해 성공 결과를 재사용합니다.
+
+## RAG Copilot UI
+
+![RAG Copilot UI](reports/presentation/RAG_Copilot_UI.png)
