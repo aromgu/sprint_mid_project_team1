@@ -12,6 +12,8 @@ def init_wandb_run(
     job_type: str,
     config: dict[str, Any] | None = None,
     name: str | None = None,
+    group: str | None = None,
+    tags: list[str] | None = None,
     project_root: Path | None = None,
 ):
     """Initialize W&B using local env files without ever handling keys in code."""
@@ -36,6 +38,7 @@ def init_wandb_run(
         entity=entity,
         name=name,
         job_type=job_type,
-        tags=[tag.strip() for tag in os.getenv("WANDB_TAGS", "").split(",") if tag.strip()],
+        group=group,
+        tags=tags if tags is not None else [tag.strip() for tag in os.getenv("WANDB_TAGS", "").split(",") if tag.strip()],
         config=config or {},
     )

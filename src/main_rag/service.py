@@ -85,6 +85,10 @@ class MainAdvancedRAGService:
             "rejected_evidence": rejected_evidence,
             "rewritten_query": rewritten,
             "retrieved_chunk_ids": [doc["chunk_id"] for doc in documents],
+            "retriever": (
+                documents[0].get("retriever", getattr(self.retriever, "mode", "main_advanced_dense"))
+                if documents else getattr(self.retriever, "mode", "main_advanced_dense")
+            ),
             "latency": {
                 "retrieval_seconds": round(retrieval_seconds, 6),
                 "generation_seconds": round(generation_seconds, 6),

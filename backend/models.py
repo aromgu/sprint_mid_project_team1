@@ -123,7 +123,7 @@ class AskRequest(BaseModel):
 
 
 class EligibilityStatusUpdate(BaseModel):
-    user_status: Literal["met", "not_met", "review_required"]
+    user_status: Literal["unchecked", "met", "not_met", "review_required"]
 
 
 class RiskStatusUpdate(BaseModel):

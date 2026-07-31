@@ -16,6 +16,7 @@ import json
 import os
 import time
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -373,6 +374,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--blocks", type=Path, default=DEFAULT_BLOCKS_PATH)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH)
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT_PATH)
+    parser.add_argument("--chunk-size", type=int, default=1024)
+    parser.add_argument("--chunk-overlap", type=int, default=102)
+    parser.add_argument("--max-workers", type=int, default=4)
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--checkpoint-dir", type=Path)
     parser.add_argument(
         "--max-documents",
         type=int,
@@ -400,9 +406,35 @@ def _failed_validation_gates(validation: Mapping[str, Any]) -> list[str]:
     return [str(name) for name, passed in gates.items() if not passed]
 
 
+def _chunk_one_document(payload: tuple[dict[str, Any], list[dict[str, Any]], AdvancedChunkConfig]) -> list[dict[str, Any]]:
+    document, blocks, config = payload
+    codec = TiktokenCodec(config.model_name, config.encoding_name)
+    return build_advanced_chunk_corpus([document], blocks, codec, config)
+
+
+def _checkpoint_path(directory: Path, source_id: str, config: AdvancedChunkConfig) -> Path:
+    return directory / f"{source_id}.A{config.max_tokens}O{config.overlap_tokens}.jsonl.gz"
+
+
+def _read_gzip_jsonl(path: Path) -> list[dict[str, Any]]:
+    with gzip.open(path, "rt", encoding="utf-8") as stream:
+        return [json.loads(line) for line in stream if line.strip()]
+
+
+def _write_checkpoint(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    with gzip.open(temporary, "wt", encoding="utf-8", compresslevel=6) as stream:
+        for row in rows:
+            stream.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+    temporary.replace(path)
+
+
 def main() -> None:
     """입력을 감사하고 검증된 Advanced 청크와 보고서만 저장한다."""
     args = build_parser().parse_args()
+    if args.max_workers < 1:
+        raise ValueError("max_workers는 1 이상이어야 합니다")
     os.umask(0o007)
 
     for input_path in (args.documents, args.blocks):
@@ -424,14 +456,23 @@ def main() -> None:
         selected_blocks,
     )
 
-    config = AdvancedChunkConfig()
+    strategy_id = (
+        "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_"
+        f"no_text_newline_cl100k_base_{args.chunk_size}_{args.chunk_overlap}_v1"
+    )
+    config = AdvancedChunkConfig(
+        max_tokens=args.chunk_size,
+        overlap_tokens=args.chunk_overlap,
+        min_tail_tokens=args.chunk_overlap,
+        strategy_id=strategy_id,
+    )
     codec = TiktokenCodec(config.model_name, config.encoding_name)
     validation_report = {
         "schema_version": RUN_REPORT_SCHEMA_VERSION,
         "input_schema_version": INPUT_SCHEMA_VERSION,
         "chunk_schema_version": SCHEMA_VERSION,
         "corpus_id": CORPUS_ID,
-        "strategy_id": STRATEGY_ID,
+        "strategy_id": config.strategy_id,
         "page_marker_detector_id": PAGE_MARKER_DETECTOR_ID,
         "embedding_text_field": "embedding_text",
         "text_embedding_normalization": TEXT_EMBEDDING_NORMALIZATION_ID,
@@ -470,12 +511,33 @@ def main() -> None:
     started_at = datetime.now(timezone.utc)
     started = time.perf_counter()
 
-    chunks = build_advanced_chunk_corpus(
-        selected_documents,
-        selected_blocks,
-        codec,
-        config,
-    )
+    blocks_by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for block in selected_blocks:
+        blocks_by_source[str(block["source_id"])].append(block)
+    ordered_documents = sorted(selected_documents, key=lambda row: str(row["source_id"]))
+    payloads = [(document, blocks_by_source[str(document["source_id"])], config) for document in ordered_documents]
+    effective_workers = min(args.max_workers, len(payloads))
+    checkpoint_dir = args.checkpoint_dir or args.output.parent / ".chunk_checkpoints"
+    chunks_by_source: dict[str, list[dict[str, Any]]] = {}
+    pending = []
+    for payload in payloads:
+        source_id = str(payload[0]["source_id"])
+        checkpoint = _checkpoint_path(checkpoint_dir, source_id, config)
+        if args.resume and checkpoint.is_file():
+            chunks_by_source[source_id] = _read_gzip_jsonl(checkpoint)
+            print(f"청킹 재사용: {source_id} ({len(chunks_by_source[source_id])}개)", flush=True)
+        else:
+            pending.append(payload)
+    if pending:
+        with ProcessPoolExecutor(max_workers=min(effective_workers, len(pending))) as executor:
+            futures = {executor.submit(_chunk_one_document, payload): str(payload[0]["source_id"]) for payload in pending}
+            for future in as_completed(futures):
+                source_id = futures[future]
+                document_chunks = future.result()
+                chunks_by_source[source_id] = document_chunks
+                _write_checkpoint(_checkpoint_path(checkpoint_dir, source_id, config), document_chunks)
+                print(f"청킹 완료: {source_id} ({len(document_chunks)}개)", flush=True)
+    chunks = [chunk for document in ordered_documents for chunk in chunks_by_source[str(document["source_id"])]]
     validation = validate_advanced_chunks(
         selected_documents,
         selected_blocks,
@@ -499,7 +561,7 @@ def main() -> None:
             "input_schema_version": INPUT_SCHEMA_VERSION,
             "chunk_schema_version": SCHEMA_VERSION,
             "corpus_id": CORPUS_ID,
-            "strategy_id": STRATEGY_ID,
+            "strategy_id": config.strategy_id,
             "page_marker_detector_id": PAGE_MARKER_DETECTOR_ID,
             "embedding_text_field": "embedding_text",
             "text_embedding_normalization": TEXT_EMBEDDING_NORMALIZATION_ID,
@@ -512,6 +574,10 @@ def main() -> None:
             "started_at_utc": started_at.isoformat(timespec="seconds"),
             "finished_at_utc": finished_at.isoformat(timespec="seconds"),
             "elapsed_seconds": round(time.perf_counter() - started, 6),
+            "max_workers": args.max_workers,
+            "effective_workers": effective_workers,
+            "resume": args.resume,
+            "checkpoint_dir": str(checkpoint_dir.expanduser().resolve()),
             "documents_path": str(args.documents.expanduser().resolve()),
             "documents_sha256": documents_sha256,
             "blocks_path": str(args.blocks.expanduser().resolve()),

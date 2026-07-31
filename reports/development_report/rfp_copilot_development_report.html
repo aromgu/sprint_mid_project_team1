@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>RFP Action Copilot 개발보고서</title>
+<style>
+@page { size: A4; margin: 18mm 18mm 17mm 18mm; }
+* { box-sizing: border-box; }
+body { margin: 0; color: #172033; font-family: "NanumGothic", "나눔고딕", sans-serif; font-size: 10.4pt; line-height: 1.56; }
+.page { page-break-after: always; }
+.page + .page { page-break-before: always; }
+.page:last-child { page-break-after: auto; }
+h1 { margin: 0 0 7mm; font-size: 25pt; line-height: 1.25; color: #17365d; }
+h2 { margin: 0 0 5mm; padding-bottom: 2.5mm; border-bottom: 1.5pt solid #2f5597; font-size: 17pt; color: #17365d; }
+h3 { margin: 4mm 0 1.5mm; font-size: 12.5pt; color: #2f5597; }
+p { margin: 0 0 2.6mm; text-align: justify; }
+ul, ol { margin: 1.5mm 0 3mm 6mm; padding-left: 5mm; }
+li { margin: 1mm 0; }
+.cover { border-top: 8mm solid #17365d; padding: 35mm 8mm 10mm; }
+.cover .kicker { color: #2f5597; font-size: 13pt; font-weight: 700; letter-spacing: 1px; }
+.cover .subtitle { margin-top: 5mm; color: #4b5563; font-size: 14pt; }
+.meta { margin-top: 30mm; width: 100%; border-collapse: collapse; }
+.meta td { padding: 3mm; border-bottom: 0.6pt solid #cbd5e1; }
+.meta td:first-child { width: 32mm; font-weight: 700; color: #334155; }
+table { width: 100%; border-collapse: collapse; margin: 3mm 0 4mm; font-size: 9.2pt; page-break-inside: avoid; break-inside: avoid; }
+th { background: #17365d; color: white; font-weight: 700; }
+th, td { border: 1.1pt solid #6f7d90; padding: 2.2mm; vertical-align: top; }
+.light th { background: #dce6f1; color: #172033; }
+.footer { margin-top: 5mm; border-top: 0.6pt solid #cbd5e1; padding-top: 2mm; color: #64748b; font-size: 8.5pt; }
+.footer span { float: right; }
+.small { font-size: 9pt; color: #475569; }
+</style>
+</head>
+<body>
+
+<section class="page cover">
+  <div class="kicker">INTERMEDIATE NLP PROJECT · DEVELOPMENT REPORT</div>
+  <h1>RFP Action Copilot<br>개발보고서</h1>
+  <div class="subtitle">공공 RFP의 탐색·검토·의사결정을 지원하는 근거 기반 RAG 애플리케이션</div>
+  <table border="1" cellspacing="0" class="meta">
+    <tr><td>작성자</td><td>김효진</td></tr>
+    <tr><td>프로젝트 기간</td><td>2026. 07. 14. ~ 2026. 07. 31.</td></tr>
+    <tr><td>주요 담당</td><td>제품·UX 기획, RFP Copilot UI 구현, 시스템 연동, 사용성 개선, UI 테스트 및 운영 문서화</td></tr>
+    <tr><td>제출 형식</td><td>개발보고서 (DOCX / PDF)</td></tr>
+  </table>
+</section>
+
+<section class="page">
+  <h2>1. 프로젝트 개요</h2>
+  <p>본 프로젝트의 목표는 RAG 기술 자체를 전시하는 것이 아니라, 복잡한 제안요청서(RFP)를 검토하는 사용자의 판단 부담을 줄이는 업무 지원 서비스를 구현하는 것이다.</p>
+  <h3>1.1 추진 배경</h3>
+  <p>기업의 제안 담당자는 공고와 RFP를 받은 뒤 참가 자격, 제출 기한, 평가 기준, 필수 제출물, 계약상 위험을 제한된 시간 안에 확인해야 한다. 원문이 길고 동일한 조건이 여러 페이지에 분산되어 있어 누락 가능성이 높으며, 단순 검색만으로는 “참여할 것인가”와 “무엇부터 준비할 것인가”라는 실제 의사결정에 도달하기 어렵다.</p>
+  <h3>1.2 개발 목표</h3>
+  <ul>
+    <li>RFP 전체를 읽기 전에 사업 핵심과 위험을 빠르게 파악할 수 있는 화면 제공</li>
+    <li>참가 여부 판단과 제출 준비를 구조화된 업무 단계로 연결</li>
+    <li>AI가 제시한 결과를 원문 페이지와 함께 검증할 수 있는 Evidence UX 구현</li>
+    <li>상태 저장, 문서 검색, 목차 이동 등 반복 검토 업무의 마찰 감소</li>
+    <li>자동 UI 테스트와 문서화를 통해 변경 시 품질 저하를 조기에 발견</li>
+  </ul>
+  <p><strong>대상 사용자:</strong> 입찰·영업 담당자, 제안 PM, 기술 검토자, 제안서 작성자 및 입찰 참여 여부를 결정하는 관리자</p>
+  <h3 style="page-break-before: always;">1.3 개인 수행 범위</h3>
+  <table border="1" cellspacing="0" class="light">
+    <tr><th bgcolor="#17365d">구분</th><th bgcolor="#17365d">수행 내용</th></tr>
+    <tr><td>제품 정의</td><td>사용자 업무 흐름과 의사결정 지점을 분석하고 MVP 범위를 정의</td></tr>
+    <tr><td>UX/UI</td><td>RFP 목록, Workspace 5개 탭, Evidence 패널, 내부 평가 화면 설계·개선</td></tr>
+    <tr><td>연동</td><td>기존 분석 백엔드를 UI 업무 기능과 연결하고 실제 문서 업로드·질의 흐름 점검</td></tr>
+    <tr><td>품질</td><td>Playwright 회귀 테스트, 스냅샷, smoke test, 사용자 가이드 및 운영 문서 작성</td></tr>
+  </table>
+</section>
+
+<section class="page">
+  <h2>2. 사용자 문제 정의와 제품 설계</h2>
+  <h3>2.1 기술 기능이 아닌 업무 단계에서 출발</h3>
+  <p>초기 설계에서는 Chunking, Embedding, Retriever 같은 기술 모듈을 화면의 중심에 두지 않았다. 사용자가 RFP를 받은 뒤 실제로 수행하는 업무를 관찰 단위로 삼았다. 핵심 질문은 “어떤 정보를 찾는가”보다 “그 정보로 어떤 결정을 내리는가”였다.</p>
+  <p><strong>업무 흐름:</strong> 사업 발견 → 핵심 내용 파악 → 적격성 판단 → 수행 가능성 검토 → 평가·위험 검토 → 참여 판단 → 제안 준비 → 원문 근거 확인</p>
+  <h3>2.2 핵심 사용자와 요구사항</h3>
+  <p>주 사용자는 기업 또는 기관의 제안 담당자이다. 이들은 공고 접수부터 선정평가, 계약, 착수까지 이어지는 과정에서 여러 이해관계자와 정보를 공유한다. 따라서 결과는 단순한 AI 답변이 아니라 담당자가 확인하고 상태를 바꾸며 다음 행동으로 넘길 수 있는 작업 단위여야 한다.</p>
+  <table border="1" cellspacing="0">
+    <tr><th bgcolor="#17365d">사용자 질문</th><th bgcolor="#17365d">실제 판단</th><th bgcolor="#17365d">제품 응답 방식</th></tr>
+    <tr><td>예산이 얼마인가?</td><td>수행 가능한 규모와 수익성인가?</td><td>예산·기간·범위 요약과 원문 근거</td></tr>
+    <tr><td>참가 자격은?</td><td>실격 가능성 없이 참여 가능한가?</td><td>자격별 충족·불충족·확인 필요 상태</td></tr>
+    <tr><td>무엇을 제출하는가?</td><td>마감 전 준비할 업무는 무엇인가?</td><td>입찰 제출물과 계약 후 산출물 분리</td></tr>
+    <tr><td>위험 조건은?</td><td>참여 또는 계약 시 감수할 위험은?</td><td>실격·감점·불이익을 심각도별 표시</td></tr>
+  </table>
+  <h3>2.3 MVP 원칙</h3>
+  <ul>
+    <li><strong>중요도 우선:</strong> 마감, 자격, 실격, 제출물을 동일한 비중으로 나열하지 않고 우선순위를 시각화했다.</li>
+    <li><strong>근거 우선:</strong> 모든 분석 카드는 문서명, 페이지, 원문으로 연결되도록 했다.</li>
+    <li><strong>행동 연결:</strong> 분석 결과를 체크리스트, 상태 변경, 담당 업무로 전환했다.</li>
+    <li><strong>보수적 표현:</strong> 근거가 없거나 신뢰도가 낮으면 단정하지 않고 “확인 필요”로 구분했다.</li>
+  </ul>
+  <p class="small"><strong>MVP 제외 범위:</strong> 회사 내부 실적·보유 역량 자동 매칭, 여러 RFP의 자동 비교, 제안서 전체 자동 작성, 입찰 참여 여부 자동 결정 및 수주 가능성 예측은 향후 확장 대상으로 분리했다.</p>
+</section>
+
+<section class="page">
+  <h2>3. 화면 및 정보 구조 설계</h2>
+  <h3>3.1 전체 화면 구조</h3>
+  <p>화면은 문서 관리, 문서별 검토 Workspace, 내부 평가의 세 영역으로 구성했다. 일반 사용자의 흐름과 개발·운영팀의 품질 점검 기능을 분리해 복잡도를 낮췄다.</p>
+  <table border="1" cellspacing="0" class="light">
+    <tr><th bgcolor="#17365d">화면</th><th bgcolor="#17365d">목적</th><th bgcolor="#17365d">주요 기능</th></tr>
+    <tr><td>RFP List</td><td>검토할 문서 선택</td><td>업로드, 검색, 정렬, 상태, 마감일, 진행률</td></tr>
+    <tr><td>Workspace</td><td>문서별 판단과 준비</td><td>Overview, Go/No-Go, 실행 준비, 요구사항, AI 질문</td></tr>
+    <tr><td>Evaluation</td><td>내부 품질 점검</td><td>모듈 상태, 검색·생성 평가, E2E 운영 지표</td></tr>
+  </table>
+  <h3>3.2 Workspace의 3열 구조</h3>
+  <p>왼쪽에는 파일 목록과 문서 목차, 가운데에는 업무 탭, 오른쪽에는 원문 Evidence 패널을 배치했다. 사용자는 분석 카드를 클릭한 뒤 화면을 이탈하지 않고 해당 원문 페이지를 확인할 수 있다. Evidence 패널 폭은 사용자가 조절하고 유지할 수 있도록 하여 긴 표와 본문을 읽기 쉽게 했다.</p>
+  <h3>3.3 업무 탭별 역할</h3>
+  <ul>
+    <li><strong>Overview:</strong> 제출·질의 마감, 자격, 위험, 제출물 진행률과 지금 할 일을 요약한다.</li>
+    <li><strong>Go / No-Go:</strong> 참가 자격과 실격·감점·계약상 불이익을 확인하고 검토 상태를 저장한다.</li>
+    <li><strong>실행 준비:</strong> 입찰 제출서류와 계약 후 사업 산출물을 분리해 준비 상태를 관리한다.</li>
+    <li><strong>요구사항:</strong> 기능, 품질·보안, 수행·계약 요구사항을 검색하고 원문 표로 이동한다.</li>
+    <li><strong>AI 질문:</strong> 자유 질문에 짧은 결론과 출처를 제공하며 근거 페이지로 이동한다.</li>
+  </ul>
+  <h3>3.4 시각 설계 기준</h3>
+  <p>업무용 도구의 신뢰성과 가독성을 위해 흰색 카드와 연회색 배경, 네이비 상태바를 사용했다. 실격은 빨강, 감점은 주황으로 구분하고 과도한 그라데이션과 그림자를 배제했다. 작은 폰트와 빽빽한 레이아웃은 반복적으로 조정하여 한 화면의 정보량과 읽기 편의 사이의 균형을 맞췄다.</p>
+</section>
+
+<section class="page">
+  <h2>4. 주요 기능 구현</h2>
+  <h3>4.1 문서 탐색과 Evidence 확인</h3>
+  <p>문서 선택, 목차, 검색 결과, 이전·다음 페이지 이동을 하나의 탐색 흐름으로 연결했다. 카드와 AI 답변의 인용 버튼을 누르면 우측 원문 뷰어가 관련 페이지를 표시하도록 하여 AI 결과와 원문 검증 사이의 이동 비용을 줄였다.</p>
+  <h3>4.2 판단 상태와 실행 상태 저장</h3>
+  <p>참가 자격은 충족·불충족·확인 필요로, 실행 준비 항목은 미착수·진행 중·완료로 변경할 수 있게 했다. 새로고침 후에도 상태가 유지되는지 사용성 시나리오와 자동 테스트에서 확인했다. 분석값과 사용자 판단을 분리함으로써 AI의 제안이 최종 의사결정을 대체하지 않도록 했다.</p>
+  <h3>4.3 위험 및 제출물 정보 정비</h3>
+  <ul>
+    <li>Overview와 업무 탭이 서로 다른 데이터를 표시하던 문제를 통합해 건수 불일치를 해소했다.</li>
+    <li>실격과 감점뿐 아니라 위약금, 손해배상, 계약 해지 등 계약상 불이익까지 위험 범위를 확장했다.</li>
+    <li>위험 상태를 미확인·위험 있음·문제없음으로 구분해 “분석 전 0건”과 “문제 없음”을 구별했다.</li>
+    <li>제출물 검색어를 다중화하고 빈 결과 캐시를 방지해 누락 가능성을 낮췄다.</li>
+    <li>입찰 단계 제출서류와 계약 후 수행 산출물을 분리해 준비 시점을 명확히 했다.</li>
+  </ul>
+  <h3>4.4 AI 질문 기능</h3>
+  <p>현재 선택 문서를 기준으로 질문하고, 답변 아래의 출처 칩을 통해 원문으로 이동하도록 구성했다. 최근 대화 맥락을 제한적으로 전달해 멀티턴 질의를 지원하면서도 불필요한 입력 증가를 억제했다. 모델 선택 기능을 통해 데모 환경에서는 응답 속도가 빠른 경량 모델을 활용할 수 있도록 했다.</p>
+  <h3>4.5 Mock과 실제 API 전환</h3>
+  <p>초기 UI 개발과 안정적인 회귀 테스트에는 Mock 데이터를 사용하고, 통합 단계에서는 환경 설정을 통해 FastAPI 기반 실제 백엔드로 전환하는 구조를 사용했다. 이 방식은 외부 API 비용과 네트워크 상태에 UI 개발이 종속되는 문제를 줄였다.</p>
+</section>
+
+<section class="page">
+  <h2>5. 시스템 연동과 성능 개선</h2>
+  <h3>5.1 RAG 처리와 제품 연동 구조</h3>
+  <p><strong>RAG 처리 흐름:</strong> RFP PDF 파싱·정제 → 제목·표·페이지 구조를 보존한 Chunking → Embedding·검색 인덱스 → 업무 목적별 검색 → 근거 선별 → 구조화 결과 생성 → 원문 위치 표시</p>
+  <p><strong>연동 구조:</strong> React UI → FastAPI → RAG Client → 팀 RAG 시스템 → 검색 근거 및 LLM 답변 → UI / Evidence 패널</p>
+  <p>개인 수행의 초점은 팀이 개발한 분석·검색 시스템을 변경하는 것이 아니라, 제품의 업무 탭에서 안정적으로 사용할 수 있도록 API와 UI 사이를 연결하는 데 있었다. 문서 업로드·인덱싱, 문서별 분석 카드, 대화 세션, 원문 페이지 이동을 통합한 후 실제 백엔드 smoke test를 수행했다.</p>
+  <p class="small"><strong>구조화 출력:</strong> 사업 개요, 예산·기간·일정, 참가 자격·제한조건, 요구사항, 평가항목·배점, 제출물, 위험요소, 근거 문장과 원문 페이지를 업무에서 재사용 가능한 필드로 구분했다.</p>
+  <h3>5.2 적용한 제품 수준 최적화</h3>
+  <ul>
+    <li>동일 문서 분석 결과와 동일 질문 답변을 캐시해 반복 LLM 호출을 방지했다.</li>
+    <li>프런트엔드에서 탭별 결과를 캐시해 같은 탭 재진입 시 중복 API 요청을 줄였다.</li>
+    <li>문서 페이지, 목차, 검색은 LLM을 거치지 않고 즉시 처리했다.</li>
+    <li>API 처리시간 헤더와 백엔드 timing 로그를 추가해 병목 구간을 구분했다.</li>
+  </ul>
+  <h3>5.3 결과와 해석</h3>
+  <p>기록된 개선 결과에서 반복 사용 시 체감 응답이 약 5초에서 3초 수준으로 감소했다. 검색만 놓고 보면 warm 상태에서 약 0.1초였으며 실제 답변 생성 시간은 LLM 호출에 의해 추가된다. 품질 손실을 피하기 위해 분석 탭의 검색 방식과 입력 길이를 무리하게 줄이지 않았고, 데모 지연이 클 경우 분석 탭은 BM25, 자유 질문은 Hybrid를 유지하는 선택지를 정리했다.</p>
+</section>
+
+<section class="page">
+  <h2>6. 테스트와 품질 관리</h2>
+  <h3>6.1 사용자 시나리오 기반 검증</h3>
+  <p>단순 렌더링 확인을 넘어 실제 사용자의 행동 흐름을 테스트 기준으로 정의했다. 참가 자격 상태 변경 후 새로고침, 실행 준비 상태 유지, 문서 검색 결과에서 페이지 이동, 목차와 이전·다음 버튼, 탭별 카드와 Evidence 연동을 반복 검증했다.</p>
+  <table border="1" cellspacing="0">
+    <tr><th bgcolor="#17365d">검증 영역</th><th bgcolor="#17365d">대표 시나리오</th><th bgcolor="#17365d">기대 결과</th></tr>
+    <tr><td>상태 저장</td><td>자격·준비 상태 변경 후 새로고침</td><td>사용자 선택 유지</td></tr>
+    <tr><td>문서 탐색</td><td>검색어 입력 후 결과 페이지 클릭</td><td>원문 뷰어가 해당 페이지 표시</td></tr>
+    <tr><td>정보 일관성</td><td>Overview와 세부 탭 건수 비교</td><td>동일 기준·동일 건수</td></tr>
+    <tr><td>근거 확인</td><td>분석 카드 또는 출처 칩 클릭</td><td>해당 문서·페이지로 이동</td></tr>
+    <tr><td>예외 처리</td><td>마감일이 원문에 직접 없는 문서</td><td>임의 추정 없이 확인 필요 표시</td></tr>
+  </table>
+  <h3>6.2 자동 UI 회귀 테스트</h3>
+  <p>Playwright를 이용해 Overview, Go/No-Go, 요구사항 등 핵심 화면의 기능과 시각 회귀 테스트를 추가했다. 스냅샷을 통해 폰트, 레이아웃, 카드 배치가 예기치 않게 바뀌는 문제를 확인하고, GitHub Actions CI에 연결해 변경 후 자동 검증이 가능하도록 했다.</p>
+  <h3>6.3 테스트 실행 원칙</h3>
+  <ul>
+    <li>결정적 로컬 테스트와 유료 외부 API 테스트를 분리한다.</li>
+    <li>가장 작은 관련 테스트를 먼저 실행하고 통과 후 회귀 범위를 확장한다.</li>
+    <li>독립 테스트는 병렬화하되 상태 저장·스크린샷 갱신은 직렬로 유지한다.</li>
+    <li>비용이 큰 평가는 resume와 캐시를 사용해 성공한 작업을 다시 실행하지 않는다.</li>
+  </ul>
+</section>
+
+<section class="page">
+  <h2>7. 개발 과정과 문제 해결</h2>
+  <h3>7.1 단계별 진행</h3>
+  <table border="1" cellspacing="0" class="light">
+    <tr><th bgcolor="#17365d">기간</th><th bgcolor="#17365d">주요 작업</th><th bgcolor="#17365d">산출물·변화</th></tr>
+    <tr><td>7/14~7/16</td><td>개발 환경 및 Git 구조 정리</td><td>로컬 baseline 실행, 협업 구조 논의</td></tr>
+    <tr><td>7/20~7/21</td><td>사용자 시나리오와 MVP 정의</td><td>업무 흐름 기반 5개 탭, 초기 앱 구현</td></tr>
+    <tr><td>7/22~7/24</td><td>실행 환경·관측·공유 환경 정비</td><td>W&amp;B 가이드, Git 반영, 원격 접속 문서</td></tr>
+    <tr><td>7/27</td><td>UI 기능·시인성·데이터 일관성 개선</td><td>위험·제출물 통합, Evidence 개선, Playwright/CI</td></tr>
+    <tr><td>7/28~7/29</td><td>기존 팀 시스템과 UI 통합</td><td>업로드·질의·평가 화면 연동, 통합 smoke</td></tr>
+    <tr><td>7/30~7/31</td><td>범위 조정 및 보고서 정리</td><td>추가 변경 중단 판단, 문서화</td></tr>
+  </table>
+  <h3>7.2 대표 문제와 해결</h3>
+  <ul>
+    <li><strong>요약과 상세의 위험 건수 불일치:</strong> 탭별 데이터 원천을 통합하고 상태 기준을 명시했다.</li>
+    <li><strong>“0건”의 의미 혼동:</strong> 분석 전, 문제없음, 미확인을 구분하는 상태 모델을 적용했다.</li>
+    <li><strong>제출물 누락:</strong> 검색어를 다중화하고 빈 분석 결과가 장기간 재사용되지 않도록 캐시를 조정했다.</li>
+    <li><strong>원문 확인의 불편:</strong> 카드 클릭, 검색, TOC, 출처 칩을 동일한 원문 뷰어에 연결했다.</li>
+    <li><strong>개선 후 기능 퇴행:</strong> 버전 관리와 Playwright 회귀 테스트를 통해 변경 전후를 비교하도록 했다.</li>
+    <li><strong>과도한 작업 범위:</strong> 남은 작업량과 일정 영향을 평가하고 지도자와 협의해 추가 UI 변경을 중단했다.</li>
+  </ul>
+  <h3>7.3 개발 관점의 학습</h3>
+  <p>사용성 개선은 화면을 보기 좋게 만드는 작업에 그치지 않았다. 결과의 의미가 서로 일치하는지, 사용자의 선택이 보존되는지, AI의 판단을 원문에서 검증할 수 있는지까지 포함했다. 또한 자동화 에이전트의 수정이 항상 개선으로 이어지는 것은 아니므로, 기대 결과를 테스트로 먼저 정의하고 작게 변경한 뒤 회귀 검증하는 과정이 중요하다는 점을 확인했다.</p>
+</section>
+
+<section class="page">
+  <h2>8. 성과 및 기여</h2>
+  <h3>8.1 제품 성과</h3>
+  <ul>
+    <li>기술 모듈 중심의 데모를 RFP 검토자의 실제 의사결정 흐름에 맞는 업무형 Copilot으로 구체화했다.</li>
+    <li>Overview에서 참가 판단, 실행 준비, 원문 검증까지 이어지는 일관된 사용자 흐름을 완성했다.</li>
+    <li>AI 결과에 원문 Evidence를 결합해 설명 가능성과 사용자의 최종 검증 가능성을 높였다.</li>
+    <li>Mock 개발, 실제 API 연동, 상태 저장, 문서 탐색과 회귀 테스트를 갖춘 데모 가능한 웹 애플리케이션을 구성했다.</li>
+  </ul>
+  <h3>8.2 협업 기여</h3>
+  <p>초기 개발 환경과 Git 구조를 정리하고, W&amp;B 사용 가이드, 원격 접속 가이드, 사용자 가이드, CI 및 테스트 가이드를 문서화했다. 팀의 분석 결과가 사용자에게 어떤 업무 가치로 전달되는지를 화면 단위로 정의했으며, UI와 기존 백엔드 사이의 요구사항을 구체화해 통합 과정의 기준을 제공했다.</p>
+  <h3>8.3 정량·정성 근거</h3>
+  <table border="1" cellspacing="0">
+    <tr><th bgcolor="#17365d">항목</th><th bgcolor="#17365d">근거</th><th bgcolor="#17365d">의미</th></tr>
+    <tr><td>업무 화면</td><td>5개 핵심 탭 + 문서 목록 + 내부 평가</td><td>검토부터 실행 준비까지 흐름 제공</td></tr>
+    <tr><td>자동 검증</td><td>Playwright 회귀·스냅샷, CI, smoke, build</td><td>변경에 따른 기능·시각 퇴행 방지</td></tr>
+    <tr><td>응답 개선</td><td>반복 사용 체감 약 5초 → 3초 수준</td><td>캐시와 중복 호출 방지의 효과</td></tr>
+    <tr><td>검색 구간</td><td>Hybrid warm 약 106ms</td><td>최초 로딩과 생성 구간을 분리 진단</td></tr>
+    <tr><td>문서화</td><td>사용자·W&amp;B·Tailscale·테스트 가이드</td><td>재현성과 팀 인수인계 지원</td></tr>
+  </table>
+  <h3>8.4 개인 기여의 핵심</h3>
+  <p>본 프로젝트에서의 핵심 기여는 RAG 모델을 새로 개발한 것이 아니라, 팀의 AI 분석 역량을 사용자가 실제로 판단하고 행동할 수 있는 제품 경험으로 변환한 것이다. 특히 업무 모델링, 정보 구조, 원문 검증 UX, 상태 관리, 사용성 개선과 자동 회귀 검증을 하나의 제품 흐름으로 연결했다.</p>
+</section>
+
+<section class="page">
+  <h2>9. 한계, 개선 방향 및 결론</h2>
+  <h3>9.1 현재 한계</h3>
+  <ul>
+    <li>회사의 실제 실적, 인력, 인증과 RFP 요구사항을 연결하지 않아 최종 참여 가능성을 자동 판단할 수 없다.</li>
+    <li>RFP에 마감일이 직접 기재되지 않고 “입찰공고 참조”로만 표시되는 경우 단일 문서만으로 확정할 수 없다.</li>
+    <li>첫 Dense 모델 로딩과 외부 LLM 생성 시간은 여전히 초기 응답 지연을 만든다.</li>
+    <li>위험·자격의 자동 추출은 원문의 표현과 표 구조에 따라 누락될 수 있어 사람의 최종 검증이 필요하다.</li>
+    <li>데모 수준의 상태 저장은 다사용자 권한, 이력, 동시 수정까지 충분히 다루지 않는다.</li>
+  </ul>
+  <h3>9.2 향후 개선 방향</h3>
+  <ol>
+    <li><strong>내부 역량 매칭:</strong> 회사 실적·인력·인증과 RFP 자격·요구사항을 연결해 확인 필요 항목을 구체화한다.</li>
+    <li><strong>복수 문서 연계:</strong> RFP와 입찰공고·과업지시서·계약조건을 하나의 사업 단위로 묶어 누락 정보를 보완한다.</li>
+    <li><strong>성능 최적화:</strong> 서버 시작 시 모델 preload, 분석 탭 BM25 우선, 자유 질문 Hybrid 유지 전략을 실제 품질 비교 후 적용한다.</li>
+    <li><strong>협업 기능:</strong> 담당자, 마감, 댓글, 변경 이력과 권한을 추가해 팀 단위 검토 도구로 확장한다.</li>
+    <li><strong>평가 고도화:</strong> UI 기대 결과를 코드 수준에서 정의하고, 오류·빈 결과·낮은 신뢰도 시나리오를 지속적으로 보강한다.</li>
+  </ol>
+  <h3>9.3 사람과 AI의 역할</h3>
+  <p>AI는 긴 문서에서 관련 정보를 찾고, 분산된 조건을 구조화하며, 확인 항목과 원문 근거를 제시한다. 사람은 회사의 실제 수행 역량, 사업의 전략적 가치와 위험 수용 여부를 평가하고 입찰 참여와 제안 전략을 최종 결정한다.</p>
+  <h3>9.4 결론</h3>
+  <p>RFP Action Copilot은 긴 문서를 요약하는 챗봇을 넘어, 참가 판단과 실행 준비를 지원하는 업무형 제품을 목표로 했다. 사용자 시나리오를 기준으로 화면을 재구성하고, 위험·자격·제출물·요구사항을 원문 근거와 연결했으며, 상태 저장과 문서 탐색을 통해 반복 검토 업무를 줄였다. 또한 실제 백엔드 연동, 성능 측정, 캐시, 자동 UI 테스트와 운영 문서화를 통해 데모의 완성도와 재현성을 높였다.</p>
+  <p>가장 중요한 결과는 AI의 답을 대신 믿게 만드는 것이 아니라, 사용자가 무엇을 확인하고 어떤 결정을 내려야 하는지를 명확히 보여주는 인터페이스를 구현한 것이다. 향후에는 복수 문서 연계와 협업·권한 기능을 보강해 실제 제안 업무 전 과정으로 확장할 수 있다.</p>
+  <p class="small"><strong>참고 자료:</strong> 김효진 개인 협업일지(2026-07-14~07-31), RFP Copilot UI 개발 개요, UI 화면 설계, 사용성 개선 과정, 사용자 가이드, 프로젝트 저장소의 UI·테스트·운영 문서 및 Git 이력.</p>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RFP Action Copilot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,400;1,500&family=Courier+Prime:wght@400;700&family=DM+Sans:wght@400;500&family=Noto+Serif+KR:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    /* === FIXED 16:9 STAGE: MANDATORY BASE STYLES === */
+    html, body { width:100%; height:100%; margin:0; overflow:hidden; background:var(--stage-bg,#000); }
+    .deck-viewport { position:fixed; inset:0; overflow:hidden; background:var(--stage-bg,#000); }
+    .deck-stage { position:absolute; left:0; top:0; width:1920px; height:1080px; overflow:hidden; transform-origin:0 0; background:var(--slide-bg,#fff); }
+    .slide { position:absolute; inset:0; width:1920px; height:1080px; overflow:hidden; display:block; visibility:hidden; opacity:0; pointer-events:none; background:var(--slide-bg,#fff); }
+    .slide.active,.slide.visible { visibility:visible; opacity:1; pointer-events:auto; z-index:1; }
+    img,video,canvas,svg { max-width:100%; max-height:100%; }
+    .deck-controls { position:fixed; left:50%; bottom:22px; transform:translateX(-50%); z-index:1000; }
+    @media print { html,body{width:1920px;height:auto;overflow:visible;background:#fff}.deck-viewport{position:static;overflow:visible;background:#fff}.deck-stage{position:static;width:auto;height:auto;transform:none!important;background:none}.slide{position:relative;display:block!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important;width:1920px;height:1080px;break-after:page;page-break-after:always}.slide:last-child{break-after:auto;page-break-after:auto}.deck-controls{display:none!important} }
+    @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.2s!important}}
+
+    /* === VELLUM TOKENS === */
+    :root { --stage-bg:#1f2858; --slide-bg:#2a3870; --yellow:#e8d85c; --yellow2:rgba(232,216,92,.68); --yellow3:rgba(232,216,92,.32); --em:#f5e168; --teal:#70a7a0; --border:rgba(232,216,92,.2); }
+    * { box-sizing:border-box; }
+    body { color:var(--yellow); font-family:"DM Sans","Noto Serif KR",sans-serif; }
+    .slide { padding:80px 116px; }
+    h1,h2,h3 { margin:0; font-family:"Cormorant Garamond","Noto Serif KR",serif; font-style:italic; font-weight:400; color:var(--yellow); }
+    h1 { font-size:150px; line-height:.98; }
+    h2 { font-size:106px; line-height:1.05; }
+    h3 { font-size:60px; line-height:1.16; }
+    h1 em,h2 em { color:var(--em); font-style:normal; font-weight:600; }
+    p { margin:0; font-size:31px; line-height:1.6; color:var(--yellow2); }
+    .center { height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; padding:0 150px 70px; }
+    .kicker { margin-bottom:30px; font:700 18px/1 "Courier Prime",monospace; letter-spacing:.12em; color:var(--teal); text-transform:uppercase; }
+    .lead { max-width:1120px; margin-top:42px; font-size:32px; }
+    .pin { position:absolute; left:116px; bottom:70px; font:700 18px/1.5 "Courier Prime",monospace; color:var(--teal); letter-spacing:.04em; }
+    .counter { position:absolute; right:116px; top:72px; font:400 17px/1 "Courier Prime",monospace; color:var(--yellow3); }
+    .rule { width:38px; height:2px; margin:30px auto; background:var(--teal); }
+
+    /* === LIST & FLOW LAYOUTS === */
+    .numbered { width:1120px; margin:42px auto 0; padding:0; list-style:none; counter-reset:item; text-align:left; }
+    .numbered li { counter-increment:item; display:grid; grid-template-columns:74px 1fr; align-items:start; margin:25px 0; font-size:34px; line-height:1.45; color:var(--yellow2); }
+    .numbered li::before { content:"0" counter(item) "."; padding-top:8px; font:700 18px/1 "Courier Prime",monospace; color:var(--teal); }
+    .journey { width:1420px; display:grid; grid-template-columns:repeat(5,1fr); margin-top:60px; border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
+    .step { padding:42px 24px; border-right:1px solid var(--border); }
+    .step:last-child { border-right:0; }
+    .step b { display:block; margin-bottom:14px; font:700 17px "Courier Prime",monospace; color:var(--teal); }
+    .step span { font-family:"Noto Serif KR",serif; font-size:27px; line-height:1.35; color:var(--yellow); }
+    .stats { width:1320px; display:grid; grid-template-columns:repeat(3,1fr); margin-top:58px; }
+    .stat { padding:28px 45px; border-right:1px solid var(--border); }
+    .stat:last-child { border:0; }
+    .stat strong { display:block; font:italic 400 91px/1 "Cormorant Garamond","Noto Serif KR",serif; color:var(--yellow); }
+    .stat span { display:block; margin-top:22px; font:400 17px "Courier Prime",monospace; color:var(--yellow2); }
+    .quote-mark { margin-bottom:10px; font:italic 400 130px/1 "Cormorant Garamond",serif; color:var(--teal); }
+    .quote { max-width:1280px; font:400 61px/1.35 "Noto Serif KR",serif; color:var(--yellow); }
+    .hint { position:fixed; right:18px; bottom:16px; z-index:1001; font:12px "Courier Prime",monospace; color:rgba(232,216,92,.45); }
+    [contenteditable="true"] { outline:1px dashed rgba(232,216,92,.28); outline-offset:5px; }
+  </style>
+</head>
+<body>
+<div class="deck-viewport"><main class="deck-stage" id="stage">
+  <!-- === SLIDE 1: COVER === -->
+  <section class="slide active">
+    <div class="center">
+      <div class="kicker">RFP INTELLIGENCE · DEVELOPMENT REPORT</div>
+      <h1>RFP Action<br><em>Copilot</em></h1>
+      <p class="lead">긴 제안요청서를 읽는 시간을 줄이고,<br>참여 판단과 실행 준비를 하나의 흐름으로 연결하다.</p>
+    </div>
+    <div class="pin">01 / 06<br>김효진 · 2026.07</div><div class="counter">RFP ACTION COPILOT</div>
+  </section>
+
+  <!-- === SLIDE 2: PROBLEM === -->
+  <section class="slide">
+    <div class="center">
+      <div class="kicker">THE PROBLEM</div>
+      <h2>사용자는 정보를 찾는 것이 아니라<br><em>결정</em>해야 한다.</h2>
+      <ol class="numbered">
+        <li>이 사업에 참여할 수 있는가?</li>
+        <li>어떤 조건이 실격·감점 위험인가?</li>
+        <li>지금 무엇부터 준비해야 하는가?</li>
+      </ol>
+    </div>
+    <div class="pin">02 / 06<br>문서 검색을 넘어 판단 지원으로</div><div class="counter">PROBLEM</div>
+  </section>
+
+  <!-- === SLIDE 3: PRODUCT FLOW === -->
+  <section class="slide">
+    <div class="center">
+      <div class="kicker">PRODUCT FLOW</div>
+      <h2>업무의 순서가 곧<br><em>화면의 구조</em>가 되었다.</h2>
+      <div class="journey">
+        <div class="step"><b>01</b><span>RFP<br>선택</span></div>
+        <div class="step"><b>02</b><span>핵심<br>파악</span></div>
+        <div class="step"><b>03</b><span>Go / No-Go<br>판단</span></div>
+        <div class="step"><b>04</b><span>실행<br>준비</span></div>
+        <div class="step"><b>05</b><span>원문 근거<br>검증</span></div>
+      </div>
+    </div>
+    <div class="pin">03 / 06<br>Overview · 판단 · 준비 · Evidence</div><div class="counter">WORKFLOW</div>
+  </section>
+
+  <!-- === SLIDE 4: FEATURES === -->
+  <section class="slide">
+    <div class="center">
+      <div class="kicker">WHAT WE BUILT</div>
+      <h2>AI 답변을<br><em>검토 가능한 업무</em>로 바꾸다.</h2>
+      <ol class="numbered">
+        <li>Overview에서 마감·자격·위험·제출물을 우선순위로 요약</li>
+        <li>Go / No-Go와 실행 준비에서 사용자 검토 상태를 저장</li>
+        <li>모든 분석 카드와 AI 출처를 원문 Evidence 패널에 연결</li>
+      </ol>
+    </div>
+    <div class="pin">04 / 06<br>구조화 · 상태 관리 · 원문 확인</div><div class="counter">CORE EXPERIENCE</div>
+  </section>
+
+  <!-- === SLIDE 5: CONTRIBUTION === -->
+  <section class="slide">
+    <div class="center">
+      <div class="kicker">MY CONTRIBUTION</div>
+      <h2>제품 경험의<br><em>전체 연결</em></h2>
+      <div class="stats">
+        <div class="stat"><strong>5</strong><span>업무 중심 핵심 탭</span></div>
+        <div class="stat"><strong>3-way</strong><span>문서 · 업무 · 근거 구조</span></div>
+        <div class="stat"><strong>E2E</strong><span>설계 · 연동 · 사용성 · 테스트</span></div>
+      </div>
+      <p class="lead">사용자 시나리오, UI 구현, 백엔드 연동, Evidence UX,<br>Playwright 회귀 테스트와 운영 문서화를 하나의 흐름으로 정리했다.</p>
+    </div>
+    <div class="pin">05 / 06<br>제품·UX 기획과 구현</div><div class="counter">CONTRIBUTION</div>
+  </section>
+
+  <!-- === SLIDE 6: CLOSE === -->
+  <section class="slide">
+    <div class="center">
+      <div class="quote-mark">“</div>
+      <div class="quote">AI가 대신 결정하는 도구가 아니라,<br>사람이 더 빠르고 정확하게<br>결정하도록 돕는 도구.</div>
+      <div class="rule"></div>
+      <p>RFP Action Copilot</p>
+    </div>
+    <div class="pin">06 / 06<br>THANK YOU</div><div class="counter">CONCLUSION</div>
+  </section>
+</main></div>
+<div class="hint">← → navigate · E edit</div>
+<script>
+  /* === FIXED-STAGE SCALER & NAVIGATION === */
+  const stage=document.getElementById('stage'); const slides=[...document.querySelectorAll('.slide')]; let index=0;
+  function scaleStage(){const s=Math.min(innerWidth/1920,innerHeight/1080);stage.style.transform=`translate(${(innerWidth-1920*s)/2}px,${(innerHeight-1080*s)/2}px) scale(${s})`;}
+  function show(n){index=(n+slides.length)%slides.length;slides.forEach((s,i)=>s.classList.toggle('active',i===index));}
+  addEventListener('resize',scaleStage); scaleStage();
+  addEventListener('keydown',e=>{if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown')show(index+1);if(e.key==='ArrowLeft'||e.key==='PageUp')show(index-1);if(e.key.toLowerCase()==='e'){document.body.classList.toggle('editing');document.querySelectorAll('h1,h2,h3,p,li,.step span,.stat span,.quote').forEach(x=>x.contentEditable=document.body.classList.contains('editing'));}});
+  let sx=0;addEventListener('touchstart',e=>sx=e.touches[0].clientX,{passive:true});addEventListener('touchend',e=>{const d=e.changedTouches[0].clientX-sx;if(Math.abs(d)>50)show(index+(d<0?1:-1));},{passive:true});
+</script>
+</body>
+</html>

@@ -356,7 +356,10 @@ def audit_advanced_input(
             raise ValueError(f"content_type 오류: {chunk_id}={content_type}")
 
         token_count = row.get("token_count")
-        if not isinstance(token_count, int) or not 1 <= token_count <= 512:
+        declared_limit = row.get("chunk_size_tokens")
+        if not isinstance(declared_limit, int) or declared_limit < 1:
+            raise ValueError(f"chunk_size_tokens 오류: {chunk_id}={declared_limit}")
+        if not isinstance(token_count, int) or not 1 <= token_count <= declared_limit:
             raise ValueError(f"token_count 범위 오류: {chunk_id}={token_count}")
         if row.get("token_count_basis") != "embedding_text":
             raise ValueError(f"token_count_basis 오류: {chunk_id}")

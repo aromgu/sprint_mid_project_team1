@@ -24,13 +24,14 @@ def test_toc_filters_placeholder_and_page_only_headings() -> None:
 
 
 def test_backend_models_accept_empty_evidence() -> None:
-    from backend.models import AskRequest, OverviewResponse, RequirementsResponse
+    from backend.models import AskRequest, EligibilityStatusUpdate, OverviewResponse, RequirementsResponse
 
     assert OverviewResponse(document_id="상_1").eligibility_summary == "review_required"
     assert RequirementsResponse(document_id="상_1").items == []
     assert AskRequest(question="질문").provider == "gemini-lite"
     assert AskRequest(question="질문", provider="gemini").provider == "gemini"
     assert AskRequest(question="질문", provider="gemini-lite").provider == "gemini-lite"
+    assert EligibilityStatusUpdate(user_status="unchecked").user_status == "unchecked"
 
 
 def test_evidence_conversion_is_bounded() -> None:
@@ -156,6 +157,27 @@ def test_requirement_table_fallback_extracts_distinct_cards_and_removes_headers(
     assert "요구사항 분류" not in items[0].description
     assert items[0].description == "시스템은 발주기관의 보안정책에 따라 개발되어야 한다. ○ 개발 보안가이드를 준수해야 한다."
     assert items[1].evidence is not None and items[1].evidence.page_number == 29
+
+
+def test_requirement_fallback_deduplicates_identical_cards_without_requirement_id() -> None:
+    from backend.services.rag_client import RAGClient
+
+    def result(chunk_id: str, page: int, text: str) -> SearchResult:
+        chunk = SearchChunk(
+            chunk_id, "eval_01", "농수산", page, page, ["Ⅳ. 제안요청 내용"], [],
+            "requirement", text, 30,
+        )
+        return SearchResult(chunk, 1, 0.9, "main_advanced_dense", {}, {}, 1.0)
+
+    items = RAGClient._fallback_requirements([
+        result("c1", 10, "수행 계약 시 제안요청 내용을 준수하여야 한다."),
+        result("c2", 11, "수행   계약 시 제안요청 내용을 준수하여야 한다."),
+        result("c3", 12, "수행 계약 시 제안요청 내용을 준수하여야 한다."),
+    ])
+
+    assert len(items) == 1
+    assert items[0].title == "Ⅳ. 제안요청 내용"
+    assert items[0].description == "수행 계약 시 제안요청 내용을 준수하여야 한다."
 
 
 def test_deliverable_retrieval_merges_queries_and_deduplicates_chunks() -> None:

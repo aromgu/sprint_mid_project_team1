@@ -88,7 +88,7 @@ class RAGClient:
             )
             results.append(SearchResult(
                 chunk=chunk, rank=rank, score=float(document.get("score") or 0),
-                retriever="main_advanced_dense",
+                retriever=str(document.get("retriever") or "main_advanced_dense"),
             ))
         return results
 
@@ -255,7 +255,7 @@ class RAGClient:
             "QUR": "quality", "SIR": "interface", "DAR": "data", "TER": "quality",
             "PMR": "project", "PSR": "operation", "COR": "contract",
         }
-        items_by_id: dict[str, RequirementItem] = {}
+        items_by_key: dict[str, RequirementItem] = {}
         for index, result in enumerate(results, 1):
             parsed = cls._parse_requirement_table(result.chunk.text)
             requirement_id = parsed["id"] or (
@@ -274,10 +274,17 @@ class RAGClient:
                 review_status="pending",
                 evidence=cls._evidence(result),
             )
-            previous = items_by_id.get(requirement_id)
+            if parsed["id"] or result.chunk.requirement_ids:
+                dedupe_key = f"id:{requirement_id.casefold()}"
+            else:
+                normalized_content = re.sub(
+                    r"[^0-9a-z가-힣]+", "", f"{title} {description}".casefold(),
+                )
+                dedupe_key = f"content:{normalized_content}"
+            previous = items_by_key.get(dedupe_key)
             if previous is None or len(item.description) > len(previous.description):
-                items_by_id[requirement_id] = item
-        return list(items_by_id.values())[:8]
+                items_by_key[dedupe_key] = item
+        return list(items_by_key.values())[:8]
 
     @staticmethod
     def _parse_requirement_table(text: str) -> dict[str, str]:
@@ -396,7 +403,7 @@ class RAGClient:
             conflicts=list(result.get("conflicts") or []),
             citations=citations,
             retrieved_chunk_ids=list(result.get("retrieved_chunk_ids") or []),
-            retriever="main_advanced_dense",
+            retriever=str(result.get("retriever") or "hybrid_rrf"),
             model=str(entry.service.session.model),
             search_latency_ms=float((result.get("latency") or {}).get("retrieval_seconds", 0)) * 1000,
             generation_latency_ms=float((result.get("latency") or {}).get("generation_seconds", 0)) * 1000,

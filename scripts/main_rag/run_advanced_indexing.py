@@ -43,9 +43,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument(
         "--mode",
-        choices=("dense",),
-        default="dense",
-        help="P0 범위에서는 Advanced Dense 인덱스만 구축합니다.",
+        choices=("all", "dense", "bm25"),
+        default="all",
+        help="Dense와 BM25를 함께 또는 개별 구축합니다.",
     )
     parser.add_argument(
         "--max-records",

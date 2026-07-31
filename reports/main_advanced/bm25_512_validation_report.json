@@ -1,0 +1,28 @@
+{
+  "started_at_utc": "2026-07-30T07:30:51+00:00",
+  "finished_at_utc": "2026-07-30T07:30:52+00:00",
+  "input_path": "data/main_advanced/chunks/chunks_advanced.jsonl.gz",
+  "input_sha256": "e16e323598dc1be5e33ffd7818239786034d26d9a4a7b46590f8612add3a571b",
+  "input_contract_name": "workspace_validated",
+  "schema_version": "rfp_advanced_chunk_v2",
+  "strategy_id": "advanced_kss_kiwi_exclude_je_semantic_tail_page_marker_no_text_newline_cl100k_base_512_51_v2",
+  "corpus_id": "advanced_v2",
+  "source_document_count": 9,
+  "input_chunk_count": 2850,
+  "text_chunk_count": 1130,
+  "table_chunk_count": 1720,
+  "mode": "bm25",
+  "dense": null,
+  "bm25": {
+    "artifact_path": "data/main_advanced/bm25/bm25_index.pkl",
+    "artifact_sha256": "db4c1f42d554b5ba966ed1155316ff862d7e718de1e32cbf7d9404a32adc7efe",
+    "manifest_path": "data/main_advanced/bm25/bm25_manifest.json",
+    "indexed_text_chunk_count": 1130,
+    "indexed_token_total": 78323,
+    "rank_bm25_version": "0.2.2",
+    "reused_existing": false,
+    "build_seconds": 0.175442
+  },
+  "total_seconds": 0.295386,
+  "report_path": "reports/main_advanced/bm25_512_validation_report.json"
+}
