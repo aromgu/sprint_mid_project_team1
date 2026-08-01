@@ -236,3 +236,6 @@ uv run python main.py
 - Github Repository 링크 : ~ 8월 2일(일) 19:00까지
 - 보고서(pdf) : ~ 8월 2일(일) 19:00까지 (Github Repository Readme에 보고서 파일을 다운로드 할 수 있도록 첨부)
 - 협업일지 : ~ 8월 3일(월) 23:50까지 (개인 단위로 작성하되, 내용을 확인할 수 있도록 Readme에 링크 또는 pdf)
+
+## 보고서
+- [보고서 다운로드 (PDF)](https://github.com/aromgu/sprint_mid_project_team1/blob/main/docs/입찰메이트_RFP_RAG_개발보고서_상세판.pdf?raw=true)
