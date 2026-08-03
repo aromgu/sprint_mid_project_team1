@@ -239,3 +239,9 @@ uv run python main.py
 
 ## 보고서
 - [보고서 다운로드 (PDF)](https://github.com/aromgu/sprint_mid_project_team1/blob/main/docs/입찰메이트_RFP_RAG_개발보고서_상세판.pdf?raw=true)
+
+## 협업일지
+- [박창준-협업일지](https://github.com/aromgu/sprint_mid_project_team1/blob/main/docs/박창준_협업일지.pdf?raw=true)
+- [강지연-협업일지](https://github.com/aromgu/sprint_mid_project_team1/blob/main/docs/강지연_협업일지.pdf?raw=true)
+- [구아롬-협업일지](https://github.com/aromgu/sprint_mid_project_team1/blob/main/docs/구아롬_협업일지.pdf?raw=true)
+- [김효진-협업일지](https://github.com/aromgu/sprint_mid_project_team1/blob/main/docs/김효진_협업일지.pdf?raw=true)
